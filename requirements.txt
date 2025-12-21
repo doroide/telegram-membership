@@ -6,3 +6,11 @@ sqlalchemy
 asyncpg
 razorpay
 httpx
+fastapi
+uvicorn
+aiogram
+python-dotenv
+sqlalchemy
+asyncpg
+razorpay
+httpx

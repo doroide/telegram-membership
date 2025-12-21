@@ -14,8 +14,7 @@ async def root():
 # Razorpay webhook route
 app.include_router(webhook_router, prefix="/webhook")
 
-
 @app.on_event("startup")
 async def startup_event():
-    # Start Telegram bot in background
-    asyncio.create_task(start_bot())
+    print("FastAPI started successfully")
+

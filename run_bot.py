@@ -1,5 +1,5 @@
 import asyncio
-from backend.bot.bot import main
+from backend.bot.bot import start_bot
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(start_bot())
