@@ -112,5 +112,5 @@ async def plan_199_callback(callback: CallbackQuery):
 # =========================
 # START BOT
 # =========================
-async def main():
+async def start_bot():
     await dp.start_polling(bot)
