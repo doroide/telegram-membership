@@ -4,6 +4,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from backend.app.config.plans import PLANS
+from aiogram.filters import Command
+
 
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -18,7 +20,7 @@ bot = Bot(
 
 dp = Dispatcher()
 
-@dp.message(commands=["start"])
+@dp.message(Command("start"))
 async def start(message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=PLANS["plan_199_4m"]["label"], callback_data="plan_199_4m")],
