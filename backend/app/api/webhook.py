@@ -15,66 +15,65 @@ router = APIRouter()
 
 @router.post("/webhook")
 async def razorpay_webhook(request: Request):
-    # Read raw body for signature verification
     body = await request.body()
     received_signature = request.headers.get("X-Razorpay-Signature")
 
-    if not received_signature:
-        raise HTTPException(status_code=400, detail="Missing Razorpay signature")
+    print("✅ WEBHOOK HIT")
 
     secret = os.getenv("RAZORPAY_KEY_SECRET")
     if not secret:
-        raise HTTPException(status_code=500, detail="Razorpay secret missing")
+        raise HTTPException(status_code=500, detail="Missing Razorpay secret")
 
-    # Verify signature
     expected_signature = hmac.new(
         secret.encode(),
         body,
         hashlib.sha256
     ).hexdigest()
 
-    if expected_signature != received_signature:
-        raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
+    if received_signature != expected_signature:
+        raise HTTPException(status_code=400, detail="Invalid signature")
 
     payload = json.loads(body)
+    print("EVENT:", payload.get("event"))
 
-    # We only care about successful payments
     if payload.get("event") != "payment.captured":
         return {"status": "ignored"}
 
-    payment = payload["payload"]["payment"]["entity"]
+    # ✅ SAFE extraction for Payment Links
+    payment_entity = payload["payload"]["payment"]["entity"]
 
-    telegram_user_id = int(payment["notes"]["telegram_user_id"])
-    plan_id = payment["notes"]["plan_id"]
+    notes = payment_entity.get("notes", {})
+    telegram_user_id = notes.get("telegram_user_id")
+    plan_id = notes.get("plan_id")
 
-    if plan_id not in PLANS:
-        raise HTTPException(status_code=400, detail="Invalid plan ID")
+    print("USER:", telegram_user_id)
+    print("PLAN:", plan_id)
+
+    if not telegram_user_id or not plan_id:
+        raise HTTPException(status_code=400, detail="Missing notes data")
 
     plan = PLANS[plan_id]
 
-    # Calculate expiry
     start_date = datetime.utcnow()
     expiry_date = start_date + relativedelta(months=plan["months"])
 
     channel_id = int(os.getenv("TELEGRAM_CHANNEL_ID"))
 
-    # Create single-use invite link
     invite = await bot.create_chat_invite_link(
         chat_id=channel_id,
         member_limit=1
     )
 
-    # Send invite to user
     await bot.send_message(
-        chat_id=telegram_user_id,
+        chat_id=int(telegram_user_id),
         text=(
             "🎉 <b>Payment Successful!</b>\n\n"
             f"📦 <b>Plan:</b> {plan['label']}\n"
             f"⏳ <b>Valid till:</b> {expiry_date.date()}\n\n"
-            f"🔗 <b>Join the channel:</b>\n"
-            f"{invite.invite_link}\n\n"
-            "⚠️ This invite is single-use. Do not share it."
+            f"🔗 <b>Join the channel:</b>\n{invite.invite_link}"
         )
     )
+
+    print("✅ INVITE SENT")
 
     return {"status": "ok"}
