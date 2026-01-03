@@ -12,12 +12,14 @@ from backend.app.config.plans import PLANS
 from backend.app.db.session import async_session
 from backend.app.db.models import Subscription
 
-
 router = APIRouter()
 
 
 @router.post("/webhook")
 async def razorpay_webhook(request: Request):
+    # -----------------------------
+    # Read raw body & signature
+    # -----------------------------
     body = await request.body()
     received_signature = request.headers.get("X-Razorpay-Signature")
 
@@ -28,7 +30,7 @@ async def razorpay_webhook(request: Request):
         raise HTTPException(status_code=500, detail="Webhook secret missing")
 
     expected_signature = hmac.new(
-        webhook_secret.encode(),
+        webhook_secret.encode("utf-8"),
         body,
         hashlib.sha256
     ).hexdigest()
@@ -36,6 +38,9 @@ async def razorpay_webhook(request: Request):
     if expected_signature != received_signature:
         raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
 
+    # -----------------------------
+    # Parse payload
+    # -----------------------------
     payload = json.loads(body)
     event = payload.get("event")
     print("EVENT:", event)
@@ -43,15 +48,15 @@ async def razorpay_webhook(request: Request):
     if event != "payment.captured":
         return {"status": "ignored"}
 
+    # -----------------------------
+    # Extract payment & notes
+    # (Payment Links safe)
+    # -----------------------------
     payment = payload["payload"]["payment"]["entity"]
 
-    # ✅ IMPORTANT: Payment Links store notes here
-    notes = {}
-
-    if "notes" in payment and payment["notes"]:
-        notes = payment["notes"]
-    else:
-        notes = payload["payload"].get("payment_link", {}).get("entity", {}).get("notes", {})
+    notes = payment.get("notes") or payload["payload"].get(
+        "payment_link", {}
+    ).get("entity", {}).get("notes", {})
 
     telegram_user_id = notes.get("telegram_user_id")
     plan_id = notes.get("plan_id")
@@ -62,25 +67,30 @@ async def razorpay_webhook(request: Request):
     if not telegram_user_id or not plan_id:
         raise HTTPException(status_code=400, detail="Missing telegram_user_id or plan_id")
 
+    # -----------------------------
+    # Plan & expiry calculation
+    # -----------------------------
     plan = PLANS[plan_id]
 
     start_date = datetime.utcnow()
     expiry_date = start_date + relativedelta(months=plan["months"])
 
-# ===============================
-# STEP 2: Save subscription in DB
-# ===============================
-async with async_session() as session:
-    sub = Subscription(
-        telegram_user_id=str(telegram_user_id),
-        plan_id=plan_id,
-        expires_at=expiry_date,
-        active=True
-    )
-    session.add(sub)
-    await session.commit()
+    # -----------------------------
+    # SAVE SUBSCRIPTION (STEP 2)
+    # -----------------------------
+    async with async_session() as session:
+        sub = Subscription(
+            telegram_user_id=str(telegram_user_id),
+            plan_id=plan_id,
+            expires_at=expiry_date,
+            active=True
+        )
+        session.add(sub)
+        await session.commit()
 
-
+    # -----------------------------
+    # Create invite link
+    # -----------------------------
     channel_id = int(os.getenv("TELEGRAM_CHANNEL_ID"))
 
     invite = await bot.create_chat_invite_link(
@@ -88,6 +98,9 @@ async with async_session() as session:
         member_limit=1
     )
 
+    # -----------------------------
+    # Send invite to user
+    # -----------------------------
     await bot.send_message(
         chat_id=int(telegram_user_id),
         text=(
