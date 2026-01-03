@@ -9,6 +9,9 @@ from dateutil.relativedelta import relativedelta
 
 from backend.bot.bot import bot
 from backend.app.config.plans import PLANS
+from backend.app.db.session import async_session
+from backend.app.db.models import Subscription
+
 
 router = APIRouter()
 
@@ -63,6 +66,20 @@ async def razorpay_webhook(request: Request):
 
     start_date = datetime.utcnow()
     expiry_date = start_date + relativedelta(months=plan["months"])
+
+# ===============================
+# STEP 2: Save subscription in DB
+# ===============================
+async with async_session() as session:
+    sub = Subscription(
+        telegram_user_id=str(telegram_user_id),
+        plan_id=plan_id,
+        expires_at=expiry_date,
+        active=True
+    )
+    session.add(sub)
+    await session.commit()
+
 
     channel_id = int(os.getenv("TELEGRAM_CHANNEL_ID"))
 
