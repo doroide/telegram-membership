@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
-
+from sqlalchemy import Boolean, Column
 Base = declarative_base()
 
 # ----------------------------
@@ -44,6 +44,8 @@ class User(Base):
 
     plan = relationship("Plan", back_populates="users")
     payments = relationship("Payment", back_populates="user")
+    reminded_3d = Column(Boolean, default=False)
+    reminded_1d = Column(Boolean, default=False)
 
 
 # ----------------------------
