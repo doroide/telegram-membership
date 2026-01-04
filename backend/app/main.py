@@ -38,7 +38,8 @@ async def on_startup():
             await asyncio.sleep(24 * 60 * 60)  # 24h
 
     asyncio.create_task(daily_expiry_job())
-      async def startup_event():
+
+     async def startup_event():
       asyncio.create_task(reminder_loop())
 
 # Health check
