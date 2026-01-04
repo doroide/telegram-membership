@@ -4,8 +4,6 @@ from fastapi import FastAPI, Request
 from aiogram.types import Update
 
 from backend.app.services.reminder_service import reminder_loop
-
-
 from backend.bot.bot import bot, dp
 from backend.app.api.webhook import router as razorpay_router
 from backend.app.tasks.expiry_checker import run_expiry_check
@@ -22,7 +20,7 @@ async def telegram_webhook(request: Request):
     await dp.feed_update(bot, update)
     return {"ok": True}
 
-# ✅ STARTUP CODE LIVES HERE
+# ✅ SINGLE, CORRECT STARTUP EVENT
 @app.on_event("startup")
 async def on_startup():
     # 1️⃣ Set Telegram webhook
@@ -31,7 +29,7 @@ async def on_startup():
     await bot.set_webhook(webhook_url)
     print("✅ Telegram webhook set")
 
-    # 2️⃣ Start expiry checker (STEP 3)
+    # 2️⃣ Start expiry checker (daily)
     async def daily_expiry_job():
         while True:
             await run_expiry_check()
@@ -39,8 +37,8 @@ async def on_startup():
 
     asyncio.create_task(daily_expiry_job())
 
-     async def startup_event():
-      asyncio.create_task(reminder_loop())
+    # 3️⃣ Start reminder loop (hourly)
+    asyncio.create_task(reminder_loop())
 
 # Health check
 @app.get("/")
