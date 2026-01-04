@@ -3,6 +3,9 @@ import asyncio
 from fastapi import FastAPI, Request
 from aiogram.types import Update
 
+from backend.app.services.reminder_service import reminder_loop
+
+
 from backend.bot.bot import bot, dp
 from backend.app.api.webhook import router as razorpay_router
 from backend.app.tasks.expiry_checker import run_expiry_check
@@ -35,6 +38,8 @@ async def on_startup():
             await asyncio.sleep(24 * 60 * 60)  # 24h
 
     asyncio.create_task(daily_expiry_job())
+      async def startup_event():
+      asyncio.create_task(reminder_loop())
 
 # Health check
 @app.get("/")

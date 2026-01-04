@@ -73,6 +73,5 @@ async def handle_plan_selection(callback):
 # BOT START FUNCTION
 # ========================
 
-async def start_bot():
-    print("Bot polling started")
-    await dp.start_polling(bot)
+async def set_webhook(webhook_url: str):
+    await bot.set_webhook(webhook_url)
