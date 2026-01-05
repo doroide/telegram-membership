@@ -19,7 +19,7 @@ async def remove_user(message: Message):
         _, user_id = message.text.split()
         user_id = int(user_id)
     except:
-        await message.answer("Usage: /remove <user_id>")
+        await message.answer("Usage: /remove USER_ID")
         return
 
     async with async_session() as session:
