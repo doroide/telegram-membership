@@ -1,22 +1,18 @@
 PLANS = {
     "plan_199_4m": {
         "price": 199,
-        "months": 4,
-        "label": "₹199 – 4 Months"
+        "days": 120   # 4 months
     },
     "plan_399_3m": {
         "price": 399,
-        "months": 3,
-        "label": "₹399 – 3 Months"
+        "days": 90    # 3 months
     },
     "plan_599_6m": {
         "price": 599,
-        "months": 6,
-        "label": "₹599 – 6 Months"
+        "days": 180   # 6 months
     },
     "plan_799_12m": {
         "price": 799,
-        "months": 12,
-        "label": "₹799 – 12 Months"
-    }
+        "days": 365   # 12 months
+    },
 }
