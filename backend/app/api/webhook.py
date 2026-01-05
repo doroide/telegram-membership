@@ -4,6 +4,7 @@ import hashlib
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Request, HTTPException
+from sqlalchemy import select
 
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Payment
@@ -37,54 +38,56 @@ async def razorpay_webhook(request: Request):
 
     payload = await request.json()
 
-    event = payload.get("event")
-    if event != "payment.captured":
+    if payload.get("event") != "payment.captured":
         return {"status": "ignored"}
 
-    payment = payload["payload"]["payment"]["entity"]
+    payment_entity = payload["payload"]["payment"]["entity"]
 
-    telegram_user_id = str(payment["notes"]["telegram_user_id"])
-    plan_id = payment["notes"]["plan_id"]
-    razorpay_payment_id = payment["id"]
-    amount = payment["amount"] / 100  # paise → INR
+    telegram_id = int(payment_entity["notes"]["telegram_user_id"])
+    plan_id = payment_entity["notes"]["plan_id"]
+    razorpay_payment_id = payment_entity["id"]
+    amount = payment_entity["amount"] / 100  # paise → INR
 
     plan = PLANS.get(plan_id)
     if not plan:
         raise HTTPException(status_code=400, detail="Invalid plan")
 
-    duration_days = plan["days"]
-    expires_at = datetime.utcnow() + timedelta(days=duration_days)
+    expiry_date = datetime.utcnow() + timedelta(days=plan["days"])
 
     async with async_session() as session:
-        # 1️⃣ Create or update USER (subscription lives here)
-        user = await session.get(User, telegram_user_id)
+
+        # 🔎 Fetch user by telegram_id (NOT primary key)
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
 
         if user:
             user.plan_id = plan_id
-            user.expires_at = expires_at
-            user.is_active = True
+            user.expiry_date = expiry_date
+            user.status = "active"
             user.reminded_1d = False
             user.reminded_3d = False
         else:
             user = User(
-                telegram_user_id=telegram_user_id,
+                telegram_id=telegram_id,
                 plan_id=plan_id,
-                expires_at=expires_at,
-                is_active=True,
+                expiry_date=expiry_date,
+                status="active",
                 reminded_1d=False,
-                reminded_3d=False
+                reminded_3d=False,
             )
             session.add(user)
 
-        # 2️⃣ Record PAYMENT
-        payment_record = Payment(
-            telegram_user_id=telegram_user_id,
+        # 💳 Save payment
+        payment = Payment(
+            telegram_id=telegram_id,
             plan_id=plan_id,
             razorpay_payment_id=razorpay_payment_id,
             amount=amount,
-            paid_at=datetime.utcnow()
+            paid_at=datetime.utcnow(),
         )
-        session.add(payment_record)
+        session.add(payment)
 
         await session.commit()
 
