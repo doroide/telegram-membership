@@ -4,6 +4,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from backend.bot.handlers import admin_stats, admin_extend, admin_remove
 
 from backend.app.config.plans import PLANS
 from backend.app.services.payment_service import create_payment_link
@@ -45,6 +46,9 @@ async def start(message):
         reply_markup=keyboard
     )
 
+dp.include_router(admin_stats.router)
+dp.include_router(admin_extend.router)
+dp.include_router(admin_remove.router)
 # ========================
 # PLAN SELECTION HANDLER
 # ========================
