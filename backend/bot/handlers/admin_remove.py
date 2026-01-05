@@ -1,15 +1,14 @@
 from aiogram import Router
 from aiogram.types import Message
+import os
 
 from backend.bot.utils.admin import is_admin
 from backend.app.db.session import async_session
 from backend.app.db.models import User
-from backend.bot.bot import bot
-import os
-
-CHANNEL_ID = int(os.getenv("TELEGRAM_CHANNEL_ID"))
 
 router = Router()
+
+CHANNEL_ID = int(os.getenv("TELEGRAM_CHANNEL_ID"))
 
 @router.message(lambda m: m.text.startswith("/remove"))
 async def remove_user(message: Message):
@@ -29,7 +28,8 @@ async def remove_user(message: Message):
             user.is_active = False
             await session.commit()
 
-    await bot.ban_chat_member(CHANNEL_ID, user_id)
-    await bot.unban_chat_member(CHANNEL_ID, user_id)
+    # ✅ USE message.bot (no import, no circular dependency)
+    await message.bot.ban_chat_member(CHANNEL_ID, user_id)
+    await message.bot.unban_chat_member(CHANNEL_ID, user_id)
 
     await message.answer(f"❌ User {user_id} removed")
