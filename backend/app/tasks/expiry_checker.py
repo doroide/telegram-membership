@@ -1,47 +1,34 @@
-import os
 from datetime import datetime
+
 from sqlalchemy import select
 
-from backend.bot.bot import bot
 from backend.app.db.session import async_session
-from backend.app.db.models import Subscription
+from backend.app.db.models import User
+from backend.bot.bot import bot
+import os
 
 CHANNEL_ID = int(os.getenv("TELEGRAM_CHANNEL_ID"))
 
 
 async def run_expiry_check():
-    print("⏰ Running expiry check")
+    now = datetime.utcnow()
 
     async with async_session() as session:
         result = await session.execute(
-            select(Subscription).where(
-                Subscription.active == True,
-                Subscription.expires_at < datetime.utcnow()
+            select(User).where(
+                User.status == "active",
+                User.expiry_date <= now
             )
         )
+        expired_users = result.scalars().all()
 
-        expired_subs = result.scalars().all()
-
-        for sub in expired_subs:
+        for user in expired_users:
             try:
-                # Remove user from channel
-                await bot.ban_chat_member(
-                    chat_id=CHANNEL_ID,
-                    user_id=int(sub.telegram_user_id)
-                )
+                await bot.ban_chat_member(CHANNEL_ID, user.telegram_id)
+                await bot.unban_chat_member(CHANNEL_ID, user.telegram_id)
+            except Exception:
+                pass  # user may have already left
 
-                # OPTIONAL: notify user
-                await bot.send_message(
-                    int(sub.telegram_user_id),
-                    "⛔ Your subscription has expired. Please renew to rejoin."
-                )
-
-                print(f"❌ Removed user {sub.telegram_user_id}")
-
-            except Exception as e:
-                print("Failed to remove user:", e)
-
-            # Mark subscription inactive
-            sub.active = False
+            user.status = "expired"
 
         await session.commit()
