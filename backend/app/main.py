@@ -29,6 +29,13 @@ async def on_startup():
     await bot.set_webhook(webhook_url)
     print("✅ Telegram webhook set")
 
+    async def expiry_loop():
+        while True:
+            await run_expiry_check()
+            await asyncio.sleep(60 * 60)  # every 1 hour
+  
+    asyncio.create_task(expiry_loop())
+
     # 2️⃣ Start expiry checker (daily)
     async def daily_expiry_job():
         while True:

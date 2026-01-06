@@ -1,34 +1,74 @@
+import os
+import httpx
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import async_session
-from backend.app.db.models import User
-from backend.bot.bot import bot
-import os
+from backend.app.db.models import Subscription, User
 
-CHANNEL_ID = int(os.getenv("TELEGRAM_CHANNEL_ID"))
+
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+
+
+async def remove_user_from_channel(telegram_id: int):
+    if not BOT_TOKEN or not CHANNEL_ID:
+        raise RuntimeError("Telegram config missing")
+
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/banChatMember",
+            json={
+                "chat_id": CHANNEL_ID,
+                "user_id": telegram_id,
+            },
+        )
+
+        # OPTIONAL: unban so user can rejoin if they pay again
+        await client.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/unbanChatMember",
+            json={
+                "chat_id": CHANNEL_ID,
+                "user_id": telegram_id,
+            },
+        )
 
 
 async def run_expiry_check():
     now = datetime.utcnow()
 
-    async with async_session() as session:
+    async with async_session() as session:  # type: AsyncSession
         result = await session.execute(
-            select(User).where(
-                User.status == "active",
-                User.expiry_date <= now
-            )
+            select(Subscription)
+            .where(Subscription.active == True)
+            .where(Subscription.expires_at <= now)
         )
-        expired_users = result.scalars().all()
 
-        for user in expired_users:
+        expired_subs = result.scalars().all()
+
+        if not expired_subs:
+            return
+
+        for sub in expired_subs:
+            telegram_id = sub.telegram_user_id
+
+            # 1️⃣ Remove user from channel
             try:
-                await bot.ban_chat_member(CHANNEL_ID, user.telegram_id)
-                await bot.unban_chat_member(CHANNEL_ID, user.telegram_id)
-            except Exception:
-                pass  # user may have already left
+                await remove_user_from_channel(telegram_id)
+            except Exception as e:
+                print(f"❌ Failed to remove {telegram_id}: {e}")
 
-            user.status = "expired"
+            # 2️⃣ Mark subscription inactive
+            sub.active = False
+
+            # 3️⃣ Update user status
+            await session.execute(
+                update(User)
+                .where(User.telegram_id == telegram_id)
+                .values(status="expired")
+            )
 
         await session.commit()
+        print(f"✅ Expiry check complete. Removed {len(expired_subs)} users.")
