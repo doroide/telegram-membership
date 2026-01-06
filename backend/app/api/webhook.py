@@ -5,90 +5,90 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Request, HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import async_session
-from backend.app.db.models import User, Payment
+from backend.app.db.models import User, Subscription
 from backend.app.config.plans import PLANS
 
 router = APIRouter()
 
-RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
-
 
 def verify_signature(body: bytes, signature: str):
-    expected = hmac.new(
-        RAZORPAY_WEBHOOK_SECRET.encode(),
+    secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+    if not secret:
+        raise RuntimeError("RAZORPAY_WEBHOOK_SECRET not set")
+
+    generated = hmac.new(
+        secret.encode(),
         body,
         hashlib.sha256
     ).hexdigest()
 
-    if not hmac.compare_digest(expected, signature):
+    if not hmac.compare_digest(generated, signature):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
 
 @router.post("/webhook")
 async def razorpay_webhook(request: Request):
-    body = await request.body()
+    raw_body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature")
 
     if not signature:
         raise HTTPException(status_code=400, detail="Missing signature")
 
-    verify_signature(body, signature)
+    verify_signature(raw_body, signature)
 
     payload = await request.json()
+    event = payload.get("event")
 
-    if payload.get("event") != "payment.captured":
+    if event != "payment.captured":
         return {"status": "ignored"}
 
-    payment_entity = payload["payload"]["payment"]["entity"]
+    payment = payload["payload"]["payment"]["entity"]
+    notes = payment.get("notes", {})
 
-    telegram_id = int(payment_entity["notes"]["telegram_user_id"])
-    plan_id = payment_entity["notes"]["plan_id"]
-    razorpay_payment_id = payment_entity["id"]
-    amount = payment_entity["amount"] / 100  # paise → INR
+    telegram_id = int(notes.get("telegram_user_id"))
+    plan_id = notes.get("plan_id")
 
-    plan = PLANS.get(plan_id)
-    if not plan:
+    if plan_id not in PLANS:
         raise HTTPException(status_code=400, detail="Invalid plan")
 
-    expiry_date = datetime.utcnow() + timedelta(days=plan["days"])
+    plan = PLANS[plan_id]
+    duration_days = plan["duration_days"]
 
-    async with async_session() as session:
+    expires_at = datetime.utcnow() + timedelta(days=duration_days)
 
-        # 🔎 Fetch user by telegram_id (NOT primary key)
+    async with async_session() as session:  # type: AsyncSession
+        # 🔍 Check if user exists
         result = await session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
 
-        if user:
-            user.plan_id = plan_id
-            user.expiry_date = expiry_date
-            user.status = "active"
-            user.reminded_1d = False
-            user.reminded_3d = False
-        else:
+        if not user:
             user = User(
+                id=telegram_id,
                 telegram_id=telegram_id,
                 plan_id=plan_id,
-                expiry_date=expiry_date,
                 status="active",
-                reminded_1d=False,
-                reminded_3d=False,
+                start_date=datetime.utcnow(),
+                expiry_date=expires_at,
             )
             session.add(user)
+        else:
+            user.plan_id = plan_id
+            user.expiry_date = expires_at
+            user.status = "active"
 
-        # 💳 Save payment
-        payment = Payment(
-            telegram_id=telegram_id,
+        subscription = Subscription(
+            telegram_user_id=telegram_id,
             plan_id=plan_id,
-            razorpay_payment_id=razorpay_payment_id,
-            amount=amount,
-            paid_at=datetime.utcnow(),
+            expires_at=expires_at,
+            active=True,
         )
-        session.add(payment)
+        session.add(subscription)
 
         await session.commit()
 
-    return {"status": "ok"}
+    return {"status": "success"}
