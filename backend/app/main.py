@@ -9,11 +9,10 @@ from backend.app.tasks.expiry_checker import run_expiry_check
 
 app = FastAPI()
 
-# Razorpay Webhook Router
+# Add webhook router
 app.include_router(razorpay_router, prefix="/api")
 
 
-# Telegram Webhook
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
@@ -22,32 +21,25 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 
-# STARTUP
 @app.on_event("startup")
 async def on_startup():
-    # -------------------------------
-    # Set Telegram Webhook
-    # -------------------------------
-    webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
 
+    # Set webhook
+    webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(webhook_url)
+    print("✅ Webhook Installed:", webhook_url)
 
-    print("✅ Telegram Webhook Set:", webhook_url)
-
-    # -------------------------------
-    # Start expiry background worker
-    # -------------------------------
+    # Background expiry job
     async def expiry_job():
         while True:
             await run_expiry_check()
-            await asyncio.sleep(60 * 60)  # Run every hour
+            await asyncio.sleep(3600)  # run every hour
 
     asyncio.create_task(expiry_job())
-    print("⏳ Expiry Checker Started")
+    print("⏳ Expiry Worker Running")
 
 
-# HEALTH CHECK
 @app.get("/")
 async def root():
     return {"status": "running"}
