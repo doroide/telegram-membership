@@ -1,106 +1,110 @@
-import os
-import httpx
-from datetime import datetime
+import asyncio
+from datetime import datetime, timedelta
 
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy import select
 from backend.app.db.session import async_session
-from backend.app.db.models import Subscription, User
-from backend.app.config.plans import PLANS
+from backend.app.db.models import User
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from backend.bot.bot import bot
 
+# USE CHANNEL ID, NOT USERNAME
+CHANNEL_ID = -1002782697491  # <-- replace with your real channel ID
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
-
-
-async def remove_user_from_channel(telegram_id: int):
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/banChatMember",
-            json={
-                "chat_id": CHANNEL_ID,
-                "user_id": telegram_id,
-            },
-        )
-
-        # Allow rejoin after payment
-        await client.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/unbanChatMember",
-            json={
-                "chat_id": CHANNEL_ID,
-                "user_id": telegram_id,
-            },
-        )
-
-
-def build_plans_keyboard():
-    keyboard = []
-    for plan_id, plan in PLANS.items():
-        keyboard.append([
-            {
-                "text": plan["label"],
-                "callback_data": plan_id
-            }
-        ])
-
-    return {"inline_keyboard": keyboard}
-
-
-async def send_expiry_message(telegram_id: int):
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": telegram_id,
-                "text": (
-                    "❌ *Subscription Expired*\n\n"
-                    "You have been removed from the channel because your plan expired.\n\n"
-                    "👉 Choose a plan below to rejoin instantly:"
-                ),
-                "parse_mode": "Markdown",
-                "reply_markup": build_plans_keyboard(),
-            },
-        )
+PLANS_KEYBOARD = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton("₹199 / 30 days", callback_data="plan_199_30d")],
+        [InlineKeyboardButton("₹499 / 90 days", callback_data="plan_499_90d")],
+        [InlineKeyboardButton("₹799 / 180 days", callback_data="plan_799_180d")],
+    ]
+)
 
 
 async def run_expiry_check():
-    now = datetime.utcnow()
-
-    async with async_session() as session:  # type: AsyncSession
+    async with async_session() as session:
         result = await session.execute(
-            select(Subscription)
-            .where(Subscription.active == True)
-            .where(Subscription.expires_at <= now)
+            select(User).where(User.status == "active")
         )
+        users = result.scalars().all()
 
-        expired_subs = result.scalars().all()
+        now = datetime.utcnow()
 
-        if not expired_subs:
-            return
+        for user in users:
+            user_id = int(user.telegram_id)
 
-        for sub in expired_subs:
-            telegram_id = sub.telegram_user_id
+            # ------------------------------
+            # 3 DAYS REMINDER
+            # ------------------------------
+            if user.expiry_date and not user.reminded_3d:
+                if user.expiry_date - timedelta(days=3) <= now < user.expiry_date:
+                    await bot.send_message(
+                        user_id,
+                        "⏳ *Your subscription expires in 3 days!*",
+                        parse_mode="Markdown"
+                    )
+                    user.reminded_3d = True
 
-            try:
-                # 1️⃣ Remove from channel
-                await remove_user_from_channel(telegram_id)
+            # ------------------------------
+            # 1 DAY REMINDER
+            # ------------------------------
+            if user.expiry_date and not user.reminded_1d:
+                if user.expiry_date - timedelta(days=1) <= now < user.expiry_date:
+                    await bot.send_message(
+                        user_id,
+                        "⚠️ *Your subscription expires in 1 day!*",
+                        parse_mode="Markdown"
+                    )
+                    user.reminded_1d = True
 
-                # 2️⃣ Notify user with plans
-                await send_expiry_message(telegram_id)
+            # ------------------------------
+            # EXPIRY CHECK
+            # ------------------------------
+            if user.expiry_date and now >= user.expiry_date:
+                user.status = "inactive"
 
-            except Exception as e:
-                print(f"❌ Error handling expiry for {telegram_id}: {e}")
+                # Remove from channel
+                try:
+                    await bot.ban_chat_member(CHANNEL_ID, user_id)
+                except Exception:
+                    pass
 
-            # 3️⃣ Mark subscription inactive
-            sub.active = False
+                # Message user
+                await bot.send_message(
+                    user_id,
+                    "❌ *Your subscription has expired!*\n\n"
+                    "You have been removed from the channel.\n"
+                    "To rejoin, choose a plan below:",
+                    reply_markup=PLANS_KEYBOARD,
+                    parse_mode="Markdown"
+                )
 
-            # 4️⃣ Update user status
-            await session.execute(
-                update(User)
-                .where(User.telegram_id == telegram_id)
-                .values(status="expired")
-            )
+            # ------------------------------
+            # FAILED ATTEMPTS REMINDER
+            # ------------------------------
+            if 1 <= user.attempts_failed < 3:
+                await bot.send_message(
+                    user_id,
+                    f"⚠️ Auto-renew attempt failed ({user.attempts_failed}/3). Retrying...",
+                    parse_mode="Markdown"
+                )
 
-        await session.commit()
-        print(f"✅ Expiry check complete. Processed {len(expired_subs)} users.")
+            # ------------------------------
+            # AUTO-REMOVE AFTER 3 FAILURES
+            # ------------------------------
+            if user.attempts_failed >= 3:
+                user.status = "inactive"
+
+                try:
+                    await bot.ban_chat_member(CHANNEL_ID, user_id)
+                except Exception:
+                    pass
+
+                await bot.send_message(
+                    user_id,
+                    "❌ *Auto-renew failed 3 times!*\n"
+                    "You have been removed.\nPlease choose a plan:",
+                    reply_markup=PLANS_KEYBOARD,
+                    parse_mode="Markdown"
+                )
+
+            # Commit for each user
+            await session.commit()

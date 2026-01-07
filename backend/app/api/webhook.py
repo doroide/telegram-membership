@@ -1,147 +1,155 @@
-import os
-import hmac
-import hashlib
+from fastapi import APIRouter, Request
+from sqlalchemy import select
 from datetime import datetime, timedelta
 
-import httpx
-from fastapi import APIRouter, Request, HTTPException
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from backend.app.db.session import async_session
-from backend.app.db.models import User, Subscription
-from backend.app.config.plans import PLANS
+from backend.app.db.models import User
+from backend.bot.bot import bot, get_access_link
 
 router = APIRouter()
 
+# Telegram Channel ID (replace this!)
+CHANNEL_ID = -1002782697491
 
-# -----------------------------
-# Razorpay signature verification
-# -----------------------------
-def verify_signature(body: bytes, signature: str):
-    secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
-    if not secret:
-        raise RuntimeError("RAZORPAY_WEBHOOK_SECRET not set")
-
-    expected_signature = hmac.new(
-        secret.encode(),
-        body,
-        hashlib.sha256
-    ).hexdigest()
-
-    if not hmac.compare_digest(expected_signature, signature):
-        raise HTTPException(status_code=400, detail="Invalid Razorpay signature")
+# Plan Durations (consistent everywhere)
+PLANS = {
+    "plan_199_30d": {"duration_days": 30},
+    "plan_499_90d": {"duration_days": 90},
+    "plan_799_180d": {"duration_days": 180},
+}
 
 
-# -----------------------------
-# Send Telegram invite link
-# -----------------------------
-async def send_invite_link(telegram_id: int):
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    channel_id = os.getenv("TELEGRAM_CHANNEL_ID")
-
-    if not bot_token or not channel_id:
-        raise RuntimeError("Telegram bot config missing")
-
-    async with httpx.AsyncClient() as client:
-        # Create single-use invite link
-        invite_resp = await client.post(
-            f"https://api.telegram.org/bot{bot_token}/createChatInviteLink",
-            json={
-                "chat_id": channel_id,
-                "member_limit": 1,
-            },
-        )
-
-        invite_data = invite_resp.json()
-        if not invite_data.get("ok"):
-            raise RuntimeError(f"Failed to create invite link: {invite_data}")
-
-        invite_link = invite_data["result"]["invite_link"]
-
-        # Send message to user
-        await client.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={
-                "chat_id": telegram_id,
-                "text": (
-                    "✅ *Payment Successful!*\n\n"
-                    "Here is your private channel access:\n"
-                    f"{invite_link}"
-                ),
-                "parse_mode": "Markdown",
-            },
-        )
-
-
-# -----------------------------
-# Razorpay webhook endpoint
-# -----------------------------
 @router.post("/webhook")
 async def razorpay_webhook(request: Request):
-    raw_body = await request.body()
-    signature = request.headers.get("X-Razorpay-Signature")
+    data = await request.json()
+    event = data.get("event")
 
-    if not signature:
-        raise HTTPException(status_code=400, detail="Missing Razorpay signature")
-
-    verify_signature(raw_body, signature)
-
-    payload = await request.json()
-    event = payload.get("event")
-
-    # Only handle successful payments
-    if event != "payment.captured":
-        return {"status": "ignored"}
-
-    payment = payload["payload"]["payment"]["entity"]
+    payload = data.get("payload", {})
+    payment = payload.get("payment", {}).get("entity", {})
     notes = payment.get("notes", {})
 
-    telegram_id = int(notes.get("telegram_user_id"))
+    telegram_id = notes.get("telegram_id")
     plan_id = notes.get("plan_id")
 
-    if not plan_id or plan_id not in PLANS:
-        raise HTTPException(status_code=400, detail="Invalid plan_id")
+    # Ignore events without required data
+    if not telegram_id or not plan_id:
+        return {"error": "missing parameters"}
 
-    plan = PLANS[plan_id]
-    duration_days = plan["duration_days"]
+    telegram_id = str(telegram_id)
 
-    expires_at = datetime.utcnow() + timedelta(days=duration_days)
+    # -----------------------------------------
+    # 🔴 PAYMENT FAILED
+    # -----------------------------------------
+    if event == "payment.failed":
+        async with async_session() as session:
+            result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            user = result.scalar_one_or_none()
 
-    async with async_session() as session:  # type: AsyncSession
-        # Check if user exists
-        result = await session.execute(
-            select(User).where(User.telegram_id == telegram_id)
-        )
-        user = result.scalar_one_or_none()
+            if not user:
+                return {"error": "user not found"}
 
-        if not user:
-            user = User(
-                id=telegram_id,
+            user.attempts_failed += 1
+            await session.commit()
+
+            # Attempt 1 or 2
+            if user.attempts_failed < 3:
+                await bot.send_message(
+                    telegram_id,
+                    f"⚠️ *Payment Failed*\nWe will retry again.\nAttempt {user.attempts_failed}/3",
+                    parse_mode="Markdown"
+                )
+                return {"retrying": True}
+
+            # Attempt 3 → Deactivate user
+            user.status = "inactive"
+            await session.commit()
+
+            # Remove user from channel
+            try:
+                await bot.ban_chat_member(CHANNEL_ID, int(telegram_id))
+            except:
+                pass
+
+            # Show plan options
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton("₹199 / 30 days", callback_data="plan_199_30d")],
+                    [InlineKeyboardButton("₹499 / 90 days", callback_data="plan_499_90d")],
+                    [InlineKeyboardButton("₹799 / 180 days", callback_data="plan_799_180d")],
+                ]
+            )
+
+            await bot.send_message(
+                telegram_id,
+                "❌ *Payment Failed 3 Times*\n\n"
+                "You have been removed from the channel.\n"
+                "Please choose a plan to rejoin:",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+
+            return {"status": "deactivated"}
+
+    # -----------------------------------------
+    # 🟢 PAYMENT SUCCESS
+    # -----------------------------------------
+    if event == "payment.captured":
+        duration_days = PLANS[plan_id]["duration_days"]
+
+        async with async_session() as session:
+            result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            user = result.scalar_one_or_none()
+
+            # ---------------------------
+            # Existing user → Renew plan
+            # ---------------------------
+            if user:
+                user.status = "active"
+                user.attempts_failed = 0
+
+                if user.expiry_date and user.expiry_date > datetime.utcnow():
+                    user.expiry_date += timedelta(days=duration_days)
+                else:
+                    user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
+
+                await session.commit()
+
+                await bot.send_message(
+                    telegram_id,
+                    f"✅ *Payment Received!*\nYour plan has been renewed.\n"
+                    f"📅 New Expiry: *{user.expiry_date.strftime('%d-%m-%Y')}*",
+                    parse_mode="Markdown"
+                )
+
+                return {"renewed": True}
+
+            # ---------------------------
+            # New User → Create record
+            # ---------------------------
+            expiry = datetime.utcnow() + timedelta(days=duration_days)
+
+            new_user = User(
                 telegram_id=telegram_id,
                 plan_id=plan_id,
                 status="active",
-                start_date=datetime.utcnow(),
-                expiry_date=expires_at,
+                expiry_date=expiry,
+                attempts_failed=0,
             )
-            session.add(user)
-        else:
-            user.plan_id = plan_id
-            user.expiry_date = expires_at
-            user.status = "active"
+            session.add(new_user)
+            await session.commit()
 
-        # Create subscription record
-        subscription = Subscription(
-            telegram_user_id=telegram_id,
-            plan_id=plan_id,
-            expires_at=expires_at,
-            active=True,
-        )
-        session.add(subscription)
+            # Send join link
+            link = await get_access_link()
 
-        await session.commit()
+            await bot.send_message(
+                telegram_id,
+                f"🎉 *Payment Successful!*\nWelcome aboard!\n\n"
+                f"📅 Valid for {duration_days} days\n\n"
+                f"👉 Join Channel: {link}",
+                parse_mode="Markdown"
+            )
 
-    # Send invite AFTER DB commit
-    await send_invite_link(telegram_id)
+            return {"created": True}
 
-    return {"status": "success"}
+    return {"status": "ignored"}
