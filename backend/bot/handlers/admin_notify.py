@@ -4,11 +4,10 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from backend.app.db.session import async_session
 from backend.app.db.models import User
-from backend.bot.bot import bot
 
 router = Router()
 
-ADMIN_ID = 5793624035 # CHANGE THIS TO YOUR TELEGRAM USER ID
+ADMIN_ID = 5793624035  # CHANGE THIS TO YOUR TELEGRAM USER ID
 
 
 @router.message(Command("notify_expiring"))
@@ -17,6 +16,8 @@ async def notify_expiring(message: Message):
     if message.from_user.id != ADMIN_ID:
         return await message.answer("❌ You are not authorized.")
 
+    from backend.bot.bot import bot  # <-- FIX: import inside function
+
     now = datetime.utcnow()
     three_days = now + timedelta(days=3)
     one_day = now + timedelta(days=1)
@@ -24,7 +25,6 @@ async def notify_expiring(message: Message):
     await message.answer("🔍 Checking for expiring users...")
 
     async with async_session() as session:
-        # Fetch active users only
         result = await session.execute(
             User.select().where(User.status == "active")
         )
@@ -70,7 +70,6 @@ async def notify_expiring(message: Message):
     async with async_session() as session:
         await session.commit()
 
-    # Admin summary
     await message.answer(
         f"📢 <b>Reminder Summary</b>\n\n"
         f"🔹 3-day reminders sent: <b>{count_3d}</b>\n"

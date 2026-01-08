@@ -4,28 +4,12 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from backend.bot.handlers import admin_users
-from backend.bot.handlers import admin_broadcast
-from backend.bot.handlers import admin_notify
-from backend.bot.handlers import admin_expired
-from backend.bot.handlers import admin_retry
-from backend.bot.handlers import admin_broadcast
-
-
-
-
-
-
-
-# Import admin handlers
-from backend.bot.handlers import admin_stats, admin_extend, admin_remove, admin_panel
 
 # Import plans
 from backend.app.config.plans import PLANS
 
 # Import payment generator
 from backend.app.services.payment_service import create_payment_link
-
 
 # ==================================
 # BOT INITIALIZATION
@@ -43,13 +27,11 @@ bot = Bot(
 
 dp = Dispatcher()
 
-
 # ==================================
-# CHANNEL ID (UPDATE THIS!)
+# CHANNEL ID
 # ==================================
 
-# Replace with your actual channel ID
-CHANNEL_ID = -1002782697491  # <--- PUT YOUR CHANNEL ID HERE
+CHANNEL_ID = -1002782697491
 
 
 # ==================================
@@ -57,7 +39,6 @@ CHANNEL_ID = -1002782697491  # <--- PUT YOUR CHANNEL ID HERE
 # ==================================
 
 async def get_access_link():
-    """Creates an invite link for the telegram channel."""
     invite = await bot.create_chat_invite_link(CHANNEL_ID, creates_join_request=False)
     return invite.invite_link
 
@@ -78,8 +59,7 @@ async def start(message):
     )
 
     await message.answer(
-        "🎬 <b>Movies Premium Doroide</b>\n\n"
-        "Choose a subscription plan 👇",
+        "🎬 <b>Movies Premium Doroide</b>\n\nChoose a subscription plan 👇",
         reply_markup=keyboard
     )
 
@@ -111,24 +91,24 @@ async def handle_plan_selection(callback):
 
 
 # ==================================
-# ADMIN ROUTERS
+# ADMIN ROUTERS (safe runtime import)
 # ==================================
 
-dp.include_router(admin_stats.router)
-dp.include_router(admin_extend.router)
-dp.include_router(admin_remove.router)
-dp.include_router(admin_panel.router)
-dp.include_router(admin_users.router)
-dp.include_router(admin_broadcast.router)
-dp.include_router(admin_notify.router)
-dp.include_router(admin_expired.router)
-dp.include_router(admin_retry.router)
-dp.include_router(admin_broadcast.router)
+def include_admin_routers():
+    from backend.bot.handlers import (
+        admin_stats, admin_extend, admin_remove,
+        admin_panel, admin_users, admin_broadcast,
+        admin_expired, admin_retry
+    )
 
-
-
-
-
+    dp.include_router(admin_stats.router)
+    dp.include_router(admin_extend.router)
+    dp.include_router(admin_remove.router)
+    dp.include_router(admin_panel.router)
+    dp.include_router(admin_users.router)
+    dp.include_router(admin_broadcast.router)
+    dp.include_router(admin_expired.router)
+    dp.include_router(admin_retry.router)
 
 
 # ==================================
@@ -136,4 +116,5 @@ dp.include_router(admin_broadcast.router)
 # ==================================
 
 async def set_webhook(webhook_url: str):
+    include_admin_routers()  # Important: call this here
     await bot.set_webhook(webhook_url)
