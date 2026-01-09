@@ -1,4 +1,4 @@
-import os
+	import os
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -55,9 +55,9 @@ async def get_access_link():
 
 @dp.message(Command("start"))
 async def start(message):
-    keyboard = InlineKeyboardMarkup(
+      keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=PLANS["plan_199_4m"]["label"], callback_data="plan_199_4m")],
+            [InlineKeyboardButton(text=PLANS["plan_199_1m"]["label"], callback_data="plan_199_1m")],
             [InlineKeyboardButton(text=PLANS["plan_399_3m"]["label"], callback_data="plan_399_3m")],
             [InlineKeyboardButton(text=PLANS["plan_599_6m"]["label"], callback_data="plan_599_6m")],
             [InlineKeyboardButton(text=PLANS["plan_799_12m"]["label"], callback_data="plan_799_12m")],
@@ -66,7 +66,7 @@ async def start(message):
 
     await message.answer(
         "🎬 <b>Premium Movies Subscription</b>\n\n"
-        "Choose your plan 👇",
+        "Choose your subscription plan ⬇️",
         reply_markup=keyboard
     )
 

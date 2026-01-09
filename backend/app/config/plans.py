@@ -1,8 +1,8 @@
 PLANS = {
-    "plan_199_4m": {
+    "plan_199_1m": {
         "price": 199,
-        "duration_days": 120,
-        "label": "₹199 – 4 Months",
+        "duration_days": 30,
+        "label": "₹199 – 1 Month",
     },
     "plan_399_3m": {
         "price": 399,
