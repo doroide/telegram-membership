@@ -5,6 +5,7 @@ from aiogram.types import Update
 
 from backend.bot.bot import bot, dp, include_admin_routers
 from backend.app.api.webhook import router as razorpay_router
+from backend.bot.bot import include_admin_routers
 from backend.app.tasks.expiry_checker import run_expiry_check
 
 app = FastAPI()
