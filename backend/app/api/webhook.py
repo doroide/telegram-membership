@@ -9,7 +9,6 @@ router = APIRouter()
 
 CHANNEL_ID = -1002782697491
 
-# VALID PLANS WITH CORRECT DURATIONS
 PLANS = {
     "plan_199_1m": {"duration_days": 30},
     "plan_399_3m": {"duration_days": 90},
@@ -21,4 +20,94 @@ PLANS = {
 @router.post("/webhook")
 async def razorpay_webhook(request: Request):
     data = await request.json()
-    print("⚡ Razorpay Webhook Hit:", data
+    print("⚡ Razorpay Webhook Hit:", data)
+
+    event = data.get("event")
+    payment = data.get("payload", {}).get("payment", {}).get("entity", {})
+    notes = payment.get("notes", {})
+
+    plan_id = notes.get("plan_id")
+    telegram_id = notes.get("telegram_id")
+
+    if not plan_id or not telegram_id:
+        return {"error": "missing notes"}
+
+    # Convert correctly to INT for DB
+    try:
+        telegram_id_int = int(telegram_id)
+    except:
+        print("❌ Invalid Telegram ID received:", telegram_id)
+        return {"error": "invalid telegram_id"}
+
+    from backend.bot.bot import bot, get_access_link
+
+    # ================================
+    # PAYMENT SUCCESS
+    # ================================
+    if event == "payment.captured":
+
+        if plan_id not in PLANS:
+            print("❌ Unknown plan:", plan_id)
+            return {"error": "invalid plan_id"}
+
+        duration_days = PLANS[plan_id]["duration_days"]
+
+        async with async_session() as session:
+
+            result = await session.execute(
+                select(User).where(User.telegram_id == telegram_id_int)
+            )
+            user = result.scalar_one_or_none()
+
+            # -----------------------------------
+            # EXISTING USER RENEWAL
+            # -----------------------------------
+            if user:
+                user.status = "active"
+                user.attempts_failed = 0
+
+                if user.expiry_date and user.expiry_date > datetime.utcnow():
+                    user.expiry_date = user.expiry_date + timedelta(days=duration_days)
+                else:
+                    user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
+
+                await session.commit()
+
+                link = await get_access_link()
+                await bot.send_message(
+                    telegram_id_int,
+                    f"✅ <b>Plan Renewed!</b>\n"
+                    f"New Expiry: <b>{user.expiry_date.strftime('%d-%m-%Y')}</b>\n\n"
+                    f"👉 Access Channel: {link}",
+                    parse_mode="HTML"
+                )
+
+                return {"status": "renewed"}
+
+            # -----------------------------------
+            # NEW USER CREATION
+            # -----------------------------------
+            new_user = User(
+                telegram_id=telegram_id_int,
+                plan_id=plan_id,
+                status="active",
+                expiry_date=datetime.utcnow() + timedelta(days=duration_days),
+                attempts_failed=0
+            )
+
+            session.add(new_user)
+            await session.commit()
+
+            link = await get_access_link()
+
+            await bot.send_message(
+                telegram_id_int,
+                f"🎉 <b>Payment Successful!</b>\n"
+                f"Welcome!\n\n"
+                f"👉 Join Here: {link}",
+                parse_mode="HTML"
+            )
+
+            return {"status": "created"}
+
+    return {"status": "ignored"}
