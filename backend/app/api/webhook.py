@@ -10,9 +10,10 @@ router = APIRouter()
 CHANNEL_ID = -1002782697491
 
 PLANS = {
-    "plan_199_30d": {"duration_days": 30},
-    "plan_499_90d": {"duration_days": 90},
-    "plan_799_180d": {"duration_days": 180},
+    "plan_199_4m": {"duration_days": 120},
+    "plan_399_3m": {"duration_days": 90},
+    "plan_599_6m": {"duration_days": 180},
+    "plan_799_12m": {"duration_days": 365},
 }
 
 
