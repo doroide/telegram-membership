@@ -1,13 +1,14 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime
+from sqlalchemy import Column, Integer, Text, Boolean, DateTime
 from sqlalchemy.sql import func
-from backend.app.db.base import Base
+from backend.app.db.base_class import Base
+
 
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # Store Telegram ID as TEXT
+    # Telegram ID stored as TEXT
     telegram_id = Column(Text, unique=True, nullable=False)
 
     telegram_username = Column(Text, nullable=True)
