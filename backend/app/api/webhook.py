@@ -32,7 +32,7 @@ async def razorpay_webhook(request: Request):
     if not plan_id or not telegram_id:
         return {"error": "missing notes"}
 
-    # Always store Telegram ID as STRING (DB column is TEXT)
+    # ALWAYS treat Telegram ID as STRING (DB column is TEXT)
     telegram_id_str = str(telegram_id)
 
     # Import bot dynamically
@@ -48,21 +48,20 @@ async def razorpay_webhook(request: Request):
 
         async with async_session() as session:
 
-            # QUERY USING STRING -> FIX FOR DB TEXT COLUMN
+            # Query user using TEXT field
             result = await session.execute(
                 select(User).where(User.telegram_id == telegram_id_str)
             )
             user = result.scalar_one_or_none()
 
-            # -----------------------------------
             # EXISTING USER RENEWAL
-            # -----------------------------------
             if user:
+
                 user.status = "active"
                 user.attempts_failed = 0
 
                 if user.expiry_date and user.expiry_date > datetime.utcnow():
-                    user.expiry_date = user.expiry_date + timedelta(days=duration_days)
+                    user.expiry_date += timedelta(days=duration_days)
                 else:
                     user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
 
@@ -74,15 +73,13 @@ async def razorpay_webhook(request: Request):
                     telegram_id_str,
                     f"✅ <b>Plan Renewed!</b>\n"
                     f"New Expiry: <b>{user.expiry_date.strftime('%d-%m-%Y')}</b>\n\n"
-                    f"👉 Access Channel: {link}",
+                    f"👉 Access: {link}",
                     parse_mode="HTML"
                 )
 
                 return {"status": "renewed"}
 
-            # -----------------------------------
             # NEW USER CREATION
-            # -----------------------------------
             new_user = User(
                 telegram_id=telegram_id_str,
                 plan_id=plan_id,
@@ -98,8 +95,7 @@ async def razorpay_webhook(request: Request):
 
             await bot.send_message(
                 telegram_id_str,
-                f"🎉 <b>Payment Successful!</b>\n"
-                f"Welcome!\n\n"
+                f"🎉 <b>Payment Successful!</b>\n\n"
                 f"👉 Join Here: {link}",
                 parse_mode="HTML"
             )
