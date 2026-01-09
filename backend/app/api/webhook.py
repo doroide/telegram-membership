@@ -10,11 +10,12 @@ router = APIRouter()
 CHANNEL_ID = -1002782697491
 
 PLANS = {
-    "plan_199_4m": {"duration_days": 120},
+    "plan_199_1m": {"duration_days": 30},
     "plan_399_3m": {"duration_days": 90},
     "plan_599_6m": {"duration_days": 180},
     "plan_799_12m": {"duration_days": 365},
 }
+
 
 
 @router.post("/webhook")
@@ -95,16 +96,35 @@ async def razorpay_webhook(request: Request):
             # ------------------------------
             # RENEW EXISTING USER
             # ------------------------------
-            if user:
-                user.status = "active"
-                user.attempts_failed = 0
+            # RENEW EXISTING USER
 
-                if user.expiry_date and user.expiry_date > datetime.utcnow():
-                    user.expiry_date += timedelta(days=duration_days)
-                else:
-                    user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
 
-                await session.commit()
+ if user:
+    user.status = "active"
+    user.attempts_failed = 0
+
+    # Correct expiry extension
+    if user.expiry_date and user.expiry_date > datetime.utcnow():
+        # User still has active days -> extend from current expiry date
+        user.expiry_date = user.expiry_date + timedelta(days=duration_days)
+    else:
+        # User expired or no expiry stored -> start new cycle from now
+        user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
+
+    await session.commit()
+
+    # Send new updated expiry to user
+    link = await get_access_link()
+    await bot.send_message(
+        telegram_id,
+        f"✅ <b>Plan Renewed!</b>\n"
+        f"New Expiry: <b>{user.expiry_date.strftime('%d-%m-%Y')}</b>\n\n"
+        f"👉 Access Channel: {link}",
+        parse_mode="HTML"
+    )
+
+    return {"renewed": True}
+
 
                 link = await get_access_link()
                 await bot.send_message(
