@@ -5,21 +5,21 @@ from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-# PLANS
+# Import PLANS
 from backend.app.config.plans import PLANS
 
-# PAYMENT LINK GENERATOR
+# Import Razorpay payment link generator
 from backend.app.services.payment_service import create_payment_link
 
 
-# ============================
+# ======================================================
 # BOT INITIALIZATION
-# ============================
+# ======================================================
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 if not BOT_TOKEN:
-    raise RuntimeError("❌ TELEGRAM_BOT_TOKEN not found in environment variables")
+    raise RuntimeError("❌ TELEGRAM_BOT_TOKEN is missing in ENV")
 
 bot = Bot(
     token=BOT_TOKEN,
@@ -29,19 +29,19 @@ bot = Bot(
 dp = Dispatcher()
 
 
-# ============================
-# CHANNEL ID
-# ============================
+# ======================================================
+# CHANNEL ID (PRIVATE CHANNEL)
+# ======================================================
 
-CHANNEL_ID = -1002782697491  # <-- update to your private channel ID
+CHANNEL_ID = -1002782697491   # UPDATE with your channel ID
 
 
-# ============================
-# INVITE LINK GENERATOR
-# ============================
+# ======================================================
+# GENERATE CHANNEL INVITE LINK
+# ======================================================
 
 async def get_access_link():
-    """Create a fresh invite link for the channel."""
+    """Generate fresh invite link every time."""
     invite = await bot.create_chat_invite_link(
         CHANNEL_ID,
         creates_join_request=False
@@ -49,59 +49,89 @@ async def get_access_link():
     return invite.invite_link
 
 
-# ============================
-# /start COMMAND
-# ============================
+# ======================================================
+# COMMAND: /start
+# ======================================================
 
 @dp.message(Command("start"))
 async def start(message):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=PLANS["plan_199_30d"]["label"], callback_data="plan_199_30d")],
-            [InlineKeyboardButton(text=PLANS["plan_499_90d"]["label"], callback_data="plan_499_90d")],
-            [InlineKeyboardButton(text=PLANS["plan_799_180d"]["label"], callback_data="plan_799_180d")],
+            [InlineKeyboardButton(text=PLANS["plan_199_4m"]["label"], callback_data="plan_199_4m")],
+            [InlineKeyboardButton(text=PLANS["plan_399_3m"]["label"], callback_data="plan_399_3m")],
+            [InlineKeyboardButton(text=PLANS["plan_599_6m"]["label"], callback_data="plan_599_6m")],
+            [InlineKeyboardButton(text=PLANS["plan_799_12m"]["label"], callback_data="plan_799_12m")],
         ]
     )
 
     await message.answer(
         "🎬 <b>Premium Movies Subscription</b>\n\n"
-        "Choose your subscription plan ⬇️",
+        "Choose your plan 👇",
         reply_markup=keyboard
     )
 
 
-# ============================
+# ======================================================
 # PLAN SELECTION HANDLER
-# ============================
+# ======================================================
 
 @dp.callback_query(lambda c: c.data in PLANS.keys())
 async def handle_plan(callback):
     plan_id = callback.data
     plan = PLANS[plan_id]
 
-    payment = create_payment_link(
-        amount_in_rupees=plan["price"],
-        user_id=callback.from_user.id,
-        plan_id=plan_id
-    )
+    # Prevent double clicks
+    await callback.answer("Generating payment link…", show_alert=False)
 
+    # Let user know bot is working
+    await callback.message.answer("⏳ Creating secure payment link...")
+
+    # Generate Razorpay payment link with error protection
+    try:
+        payment = create_payment_link(
+            amount_in_rupees=plan["price"],
+            user_id=callback.from_user.id,
+            plan_id=plan_id
+        )
+    except Exception as e:
+        await callback.message.answer(
+            "⚠️ Unable to generate payment link.\n"
+            "Please wait and try again."
+        )
+        return
+
+    # Razorpay rate limit handling
+    if isinstance(payment, dict) and payment.get("error") == "rate_limit":
+        await callback.message.answer(
+            "⚠️ Too many requests.\n"
+            "Please wait 10 seconds and try again."
+        )
+        return
+
+    # Validate response
+    if "short_url" not in payment:
+        await callback.message.answer(
+            "❌ Payment link could not be generated.\n"
+            "Try again later."
+        )
+        return
+
+    # Success → Send payment link
     await callback.message.answer(
-        f"📌 <b>Plan Selected</b>\n\n"
+        f"🧾 <b>Plan Selected</b>\n\n"
         f"📦 {plan['label']}\n"
         f"💰 Price: ₹{plan['price']}\n\n"
-        f"🔗 Pay Here:\n{payment['short_url']}\n\n"
-        f"After successful payment, you will receive channel access automatically."
+        f"🔗 <b>Pay Here:</b>\n{payment['short_url']}\n\n"
+        f"Once payment is completed, you will receive channel access automatically."
     )
 
-    await callback.answer()
 
-
-# ============================
-# ADMIN ROUTER LOADER
-# ============================
+# ======================================================
+# INCLUDE ADMIN ROUTERS (dynamic import)
+# ======================================================
 
 def include_admin_routers():
-    """Import admin routers dynamically to avoid circular imports."""
+    """Load admin routers safely (prevents circular imports)."""
 
     from backend.bot.handlers import (
         admin_panel,
@@ -122,3 +152,4 @@ def include_admin_routers():
     dp.include_router(admin_broadcast.router)
     dp.include_router(admin_expired.router)
     dp.include_router(admin_retry.router)
+
