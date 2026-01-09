@@ -9,13 +9,13 @@ router = APIRouter()
 
 CHANNEL_ID = -1002782697491
 
+# Correct Plan Durations
 PLANS = {
     "plan_199_1m": {"duration_days": 30},
     "plan_399_3m": {"duration_days": 90},
     "plan_599_6m": {"duration_days": 180},
     "plan_799_12m": {"duration_days": 365},
 }
-
 
 
 @router.post("/webhook")
@@ -36,7 +36,7 @@ async def razorpay_webhook(request: Request):
 
     telegram_id = str(telegram_id)
 
-    # Import bot dynamically to avoid circular import
+    # Import here to avoid circular import
     from backend.bot.bot import bot, get_access_link
 
     # ==========================================================
@@ -44,27 +44,26 @@ async def razorpay_webhook(request: Request):
     # ==========================================================
     if event == "payment.failed":
         async with async_session() as session:
-
-            result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            result = await session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
             user = result.scalar_one_or_none()
 
             if not user:
-                print("❌ User not found in DB")
                 return {"error": "user not found"}
 
             user.attempts_failed += 1
             await session.commit()
 
-            # Notify and stop execution
             if user.attempts_failed < 3:
                 await bot.send_message(
                     telegram_id,
-                    f"⚠️ Payment Failed Attempt {user.attempts_failed}/3. Retrying...",
+                    f"⚠️ Payment Failed (Attempt {user.attempts_failed}/3). Retrying...",
                     parse_mode="Markdown"
                 )
                 return {"retrying": True}
 
-            # 3rd attempt — remove user
+            # 3 failed attempts -> deactivate
             user.status = "inactive"
             await session.commit()
 
@@ -75,7 +74,7 @@ async def razorpay_webhook(request: Request):
 
             await bot.send_message(
                 telegram_id,
-                "❌ Payment Failed 3 Times. You have been removed from the channel.",
+                "❌ Payment Failed 3 Times. You have been removed.",
                 parse_mode="Markdown"
             )
 
@@ -90,51 +89,36 @@ async def razorpay_webhook(request: Request):
 
         async with async_session() as session:
 
-            result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            result = await session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
             user = result.scalar_one_or_none()
 
             # ------------------------------
             # RENEW EXISTING USER
             # ------------------------------
-            # RENEW EXISTING USER
+            if user:
+                user.status = "active"
+                user.attempts_failed = 0
 
+                # Correct expiry handling
+                if user.expiry_date and user.expiry_date > datetime.utcnow():
+                    user.expiry_date = user.expiry_date + timedelta(days=duration_days)
+                else:
+                    user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
 
- if user:
-    user.status = "active"
-    user.attempts_failed = 0
-
-    # Correct expiry extension
-    if user.expiry_date and user.expiry_date > datetime.utcnow():
-        # User still has active days -> extend from current expiry date
-        user.expiry_date = user.expiry_date + timedelta(days=duration_days)
-    else:
-        # User expired or no expiry stored -> start new cycle from now
-        user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
-
-    await session.commit()
-
-    # Send new updated expiry to user
-    link = await get_access_link()
-    await bot.send_message(
-        telegram_id,
-        f"✅ <b>Plan Renewed!</b>\n"
-        f"New Expiry: <b>{user.expiry_date.strftime('%d-%m-%Y')}</b>\n\n"
-        f"👉 Access Channel: {link}",
-        parse_mode="HTML"
-    )
-
-    return {"renewed": True}
-
+                await session.commit()
 
                 link = await get_access_link()
                 await bot.send_message(
                     telegram_id,
-                    f"🎉 *Subscription Renewed!*\nNew expiry: {user.expiry_date.strftime('%d-%m-%Y')}\n"
-                    f"👉 Channel Access: {link}",
-                    parse_mode="Markdown"
+                    f"✅ <b>Plan Renewed!</b>\n"
+                    f"New Expiry: <b>{user.expiry_date.strftime('%d-%m-%Y')}</b>\n\n"
+                    f"👉 Access Channel: {link}",
+                    parse_mode="HTML"
                 )
 
-                print("✔ Renewal processed and link sent")
+                print("✔ Renewal processed")
                 return {"renewed": True}
 
             # ------------------------------
@@ -162,7 +146,7 @@ async def razorpay_webhook(request: Request):
                 parse_mode="Markdown"
             )
 
-            print("✔ New user created and link sent")
+            print("✔ New user created")
             return {"created": True}
 
     return {"ignored": True}
