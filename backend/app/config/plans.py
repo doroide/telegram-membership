@@ -1,22 +1,17 @@
 PLANS = {
-    "plan_199_4m": {
+    "plan_199_30d": {
         "price": 199,
-        "duration_days": 120,
-        "label": "₹199 – 4 Months",
+        "duration_days": 30,
+        "label": "₹199 – 30 Days",
     },
-    "plan_399_3m": {
-        "price": 399,
+    "plan_499_90d": {
+        "price": 499,
         "duration_days": 90,
-        "label": "₹399 – 3 Months",
+        "label": "₹499 – 90 Days",
     },
-    "plan_599_6m": {
-        "price": 599,
-        "duration_days": 180,
-        "label": "₹599 – 6 Months",
-    },
-    "plan_799_12m": {
+    "plan_799_180d": {
         "price": 799,
-        "duration_days": 365,
-        "label": "₹799 – 12 Months",
+        "duration_days": 180,
+        "label": "₹799 – 180 Days",
     },
 }
