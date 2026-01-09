@@ -9,7 +9,7 @@ router = APIRouter()
 
 CHANNEL_ID = -1002782697491
 
-# Correct Plan Durations
+# MUST MATCH Razorpay plan_id EXACTLY
 PLANS = {
     "plan_199_1m": {"duration_days": 30},
     "plan_399_3m": {"duration_days": 90},
@@ -27,81 +27,46 @@ async def razorpay_webhook(request: Request):
     payment = data.get("payload", {}).get("payment", {}).get("entity", {})
     notes = payment.get("notes", {})
 
-    telegram_id = notes.get("telegram_id")
     plan_id = notes.get("plan_id")
+    telegram_id = notes.get("telegram_id")
 
-    if not telegram_id or not plan_id:
-        print("❌ Missing Notes:", notes)
-        return {"error": "missing parameters"}
+    if not plan_id or not telegram_id:
+        return {"error": "missing notes"}
 
-    telegram_id = str(telegram_id)
+    # Convert telegram_id to int for DB compatibility 
+    try:
+        telegram_id = int(telegram_id)
+    except:
+        print("❌ Invalid telegram_id received:", telegram_id)
+        return {"error": "invalid telegram_id"}
 
-    # Import here to avoid circular import
+    # Import bot dynamically
     from backend.bot.bot import bot, get_access_link
 
-    # ==========================================================
-    # PAYMENT FAILED
-    # ==========================================================
-    if event == "payment.failed":
-        async with async_session() as session:
-            result = await session.execute(
-                select(User).where(User.telegram_id == telegram_id)
-            )
-            user = result.scalar_one_or_none()
-
-            if not user:
-                return {"error": "user not found"}
-
-            user.attempts_failed += 1
-            await session.commit()
-
-            if user.attempts_failed < 3:
-                await bot.send_message(
-                    telegram_id,
-                    f"⚠️ Payment Failed (Attempt {user.attempts_failed}/3). Retrying...",
-                    parse_mode="Markdown"
-                )
-                return {"retrying": True}
-
-            # 3 failed attempts -> deactivate
-            user.status = "inactive"
-            await session.commit()
-
-            try:
-                await bot.ban_chat_member(CHANNEL_ID, int(telegram_id))
-            except Exception:
-                pass
-
-            await bot.send_message(
-                telegram_id,
-                "❌ Payment Failed 3 Times. You have been removed.",
-                parse_mode="Markdown"
-            )
-
-            return {"removed": True}
-
-    # ==========================================================
+    # =======================
     # PAYMENT SUCCESS
-    # ==========================================================
+    # =======================
     if event == "payment.captured":
+
+        if plan_id not in PLANS:
+            print("❌ Unknown plan returned by Razorpay:", plan_id)
+            return {"error": "invalid plan_id"}
 
         duration_days = PLANS[plan_id]["duration_days"]
 
         async with async_session() as session:
 
-            result = await session.execute(
-                select(User).where(User.telegram_id == telegram_id)
-            )
+            result = await session.execute(select(User).where(User.telegram_id == telegram_id))
             user = result.scalar_one_or_none()
 
             # ------------------------------
-            # RENEW EXISTING USER
+            # EXISTING USER RENEWAL
             # ------------------------------
             if user:
+
                 user.status = "active"
                 user.attempts_failed = 0
 
-                # Correct expiry handling
                 if user.expiry_date and user.expiry_date > datetime.utcnow():
                     user.expiry_date = user.expiry_date + timedelta(days=duration_days)
                 else:
@@ -118,20 +83,17 @@ async def razorpay_webhook(request: Request):
                     parse_mode="HTML"
                 )
 
-                print("✔ Renewal processed")
-                return {"renewed": True}
+                return {"status": "renewed"}
 
             # ------------------------------
-            # NEW USER REGISTRATION
+            # NEW USER CREATION
             # ------------------------------
-            expiry = datetime.utcnow() + timedelta(days=duration_days)
-
             new_user = User(
                 telegram_id=telegram_id,
                 plan_id=plan_id,
                 status="active",
-                expiry_date=expiry,
-                attempts_failed=0,
+                expiry_date=datetime.utcnow() + timedelta(days=duration_days),
+                attempts_failed=0
             )
 
             session.add(new_user)
@@ -141,12 +103,12 @@ async def razorpay_webhook(request: Request):
 
             await bot.send_message(
                 telegram_id,
-                f"🎉 *Welcome!*\nYour subscription is active.\n"
-                f"👉 Join Channel: {link}",
-                parse_mode="Markdown"
+                f"🎉 <b>Payment Successful!</b>\n"
+                f"Welcome to the channel.\n\n"
+                f"👉 Join Here: {link}",
+                parse_mode="HTML"
             )
 
-            print("✔ New user created")
-            return {"created": True}
+            return {"status": "created"}
 
-    return {"ignored": True}
+    return {"status": "ignored"}
