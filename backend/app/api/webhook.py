@@ -9,7 +9,6 @@ router = APIRouter()
 
 CHANNEL_ID = -1002782697491
 
-# MUST MATCH Razorpay plan_id EXACTLY
 PLANS = {
     "plan_199_1m": {"duration_days": 30},
     "plan_399_3m": {"duration_days": 90},
@@ -33,35 +32,34 @@ async def razorpay_webhook(request: Request):
     if not plan_id or not telegram_id:
         return {"error": "missing notes"}
 
-    # Convert telegram_id to int for DB compatibility 
-    try:
-        telegram_id = int(telegram_id)
-    except:
-        print("❌ Invalid telegram_id received:", telegram_id)
-        return {"error": "invalid telegram_id"}
+    # Always store Telegram ID as STRING (because DB column is TEXT)
+    telegram_id_str = str(telegram_id)
 
     # Import bot dynamically
     from backend.bot.bot import bot, get_access_link
 
-    # =======================
+    # ================================
     # PAYMENT SUCCESS
-    # =======================
+    # ================================
     if event == "payment.captured":
 
         if plan_id not in PLANS:
-            print("❌ Unknown plan returned by Razorpay:", plan_id)
+            print("❌ Unknown plan:", plan_id)
             return {"error": "invalid plan_id"}
 
         duration_days = PLANS[plan_id]["duration_days"]
 
         async with async_session() as session:
 
-            result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            # Query using STRING because DB column is TEXT
+            result = await session.execute(
+                select(User).where(User.telegram_id == telegram_id_str)
+            )
             user = result.scalar_one_or_none()
 
-            # ------------------------------
+            # -----------------------------------
             # EXISTING USER RENEWAL
-            # ------------------------------
+            # -----------------------------------
             if user:
 
                 user.status = "active"
@@ -76,7 +74,7 @@ async def razorpay_webhook(request: Request):
 
                 link = await get_access_link()
                 await bot.send_message(
-                    telegram_id,
+                    telegram_id_str,
                     f"✅ <b>Plan Renewed!</b>\n"
                     f"New Expiry: <b>{user.expiry_date.strftime('%d-%m-%Y')}</b>\n\n"
                     f"👉 Access Channel: {link}",
@@ -85,11 +83,11 @@ async def razorpay_webhook(request: Request):
 
                 return {"status": "renewed"}
 
-            # ------------------------------
+            # -----------------------------------
             # NEW USER CREATION
-            # ------------------------------
+            # -----------------------------------
             new_user = User(
-                telegram_id=telegram_id,
+                telegram_id=telegram_id_str,
                 plan_id=plan_id,
                 status="active",
                 expiry_date=datetime.utcnow() + timedelta(days=duration_days),
@@ -102,9 +100,9 @@ async def razorpay_webhook(request: Request):
             link = await get_access_link()
 
             await bot.send_message(
-                telegram_id,
+                telegram_id_str,
                 f"🎉 <b>Payment Successful!</b>\n"
-                f"Welcome to the channel.\n\n"
+                f"Welcome!\n\n"
                 f"👉 Join Here: {link}",
                 parse_mode="HTML"
             )
