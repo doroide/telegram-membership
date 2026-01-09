@@ -5,12 +5,11 @@ from aiogram.types import Update
 
 from backend.bot.bot import bot, dp, include_admin_routers
 from backend.app.api.webhook import router as razorpay_router
-from backend.bot.bot import include_admin_routers
 from backend.app.tasks.expiry_checker import run_expiry_check
 
 app = FastAPI()
 
-# Add Razorpay webhook route
+# Razorpay webhook
 app.include_router(razorpay_router, prefix="/api")
 
 
@@ -25,27 +24,33 @@ async def telegram_webhook(request: Request):
 @app.on_event("startup")
 async def on_startup():
 
-    # STEP 1: load admin routers
+    print("🚀 Startup: Loading admin routers")
     include_admin_routers()
-    print("✅ Admin routers included")
 
-    # STEP 2: install webhook
     webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await bot.set_webhook(webhook_url)
-    print("🔗 Webhook Installed:", webhook_url)
 
-    # STEP 3: start expiry worker
+    # Check webhook only ONCE
+    current = await bot.get_webhook_info()
+
+    if current.url != webhook_url:
+        print("🔗 Installing webhook...")
+        await bot.delete_webhook(drop_pending_updates=True)
+        await bot.set_webhook(webhook_url)
+        print("✅ Webhook installed:", webhook_url)
+    else:
+        print("ℹ️ Webhook already installed, skipping")
+
+    # Background expiry worker
     async def expiry_job():
         while True:
             await run_expiry_check()
-            print("⏳ Expiry check done")
-            await asyncio.sleep(3600)  # every hour
+            print("⏳ Expiry check completed")
+            await asyncio.sleep(3600)
 
     asyncio.create_task(expiry_job())
-    print("🚀 Expiry Worker Running")
+    print("🟢 Expiry Worker Running")
 
 
 @app.get("/")
 async def root():
-    return {"status": "running", "version": "ok"}
+    return {"status": "running"}
