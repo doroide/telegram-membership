@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, Text, Boolean, DateTime
 from sqlalchemy.sql import func
-from backend.app.db.base_class import Base
+from backend.app.db.base import Base   # ✅ FIXED IMPORT
 
 
 class User(Base):
@@ -8,7 +8,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # Correct: TELEGRAM ID stored as text
+    # TELEGRAM ID stored as TEXT (correct)
     telegram_id = Column(Text, nullable=False, unique=True)
 
     telegram_username = Column(Text, nullable=True)
