@@ -27,3 +27,23 @@ class User(Base):
     reminded_1d = Column(Boolean, default=False)
 
     created_at = Column(DateTime, default=func.now())
+
+
+from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
+from sqlalchemy.sql import func
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    razorpay_payment_id = Column(Text, nullable=False)
+    amount = Column(Integer, nullable=False)
+    plan_id = Column(Text, nullable=True)
+
+    status = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=func.now())
+

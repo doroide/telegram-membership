@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from sqlalchemy import select, func
 
 from backend.app.db.session import async_session
-from backend.app.db.models import User, Payment
+from backend.app.db.models import User
 
 ADMIN_ID = 5793624035  # update if needed
 
