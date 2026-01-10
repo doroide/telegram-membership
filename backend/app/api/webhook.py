@@ -32,59 +32,58 @@ async def razorpay_webhook(request: Request):
     if not plan_id or not telegram_id:
         return {"error": "missing notes"}
 
-    # ALWAYS treat Telegram ID as STRING (DB column is TEXT)
     telegram_id_str = str(telegram_id)
 
-    # Import bot dynamically
     from backend.bot.bot import bot, get_access_link
 
     if event == "payment.captured":
 
         if plan_id not in PLANS:
-            print("❌ Unknown plan:", plan_id)
             return {"error": "invalid plan_id"}
 
         duration_days = PLANS[plan_id]["duration_days"]
 
         async with async_session() as session:
 
-            # Query user using TEXT field
             result = await session.execute(
                 select(User).where(User.telegram_id == telegram_id_str)
             )
             user = result.scalar_one_or_none()
 
-            # EXISTING USER RENEWAL
+            # EXISTING USER
             if user:
 
                 user.status = "active"
                 user.attempts_failed = 0
 
                 if user.expiry_date and user.expiry_date > datetime.utcnow():
-                    user.expiry_date += timedelta(days=duration_days)
+                    user.expiry_date = user.expiry_date + timedelta(days=duration_days)
                 else:
                     user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
 
                 await session.commit()
 
                 link = await get_access_link()
+                expiry_text = user.expiry_date.strftime("%d-%m-%Y")
 
                 await bot.send_message(
                     telegram_id_str,
-                    f"✅ <b>Plan Renewed!</b>\n"
-                    f"New Expiry: <b>{user.expiry_date.strftime('%d-%m-%Y')}</b>\n\n"
-                    f"👉 Access: {link}",
+                    f"✅ <b>Plan Renewed Successfully!</b>\n"
+                    f"🗓 Expiry Date: <b>{expiry_text}</b>\n\n"
+                    f"👉 Your Channel Access Link:\n{link}",
                     parse_mode="HTML"
                 )
 
                 return {"status": "renewed"}
 
-            # NEW USER CREATION
+            # NEW USER
+            expiry = datetime.utcnow() + timedelta(days=duration_days)
+
             new_user = User(
                 telegram_id=telegram_id_str,
                 plan_id=plan_id,
                 status="active",
-                expiry_date=datetime.utcnow() + timedelta(days=duration_days),
+                expiry_date=expiry,
                 attempts_failed=0
             )
 
@@ -92,11 +91,14 @@ async def razorpay_webhook(request: Request):
             await session.commit()
 
             link = await get_access_link()
+            expiry_text = expiry.strftime("%d-%m-%Y")
 
             await bot.send_message(
                 telegram_id_str,
-                f"🎉 <b>Payment Successful!</b>\n\n"
-                f"👉 Join Here: {link}",
+                f"🎉 <b>Payment Successful!</b>\n"
+                f"Welcome to the Premium Channel!\n\n"
+                f"🗓 Your Plan Expiry: <b>{expiry_text}</b>\n\n"
+                f"👉 Click to Join: {link}",
                 parse_mode="HTML"
             )
 
