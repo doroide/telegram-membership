@@ -5,7 +5,7 @@ from backend.app.db.base import Base   # ✅ FIXED IMPORT
 
 class User(Base):
     __tablename__ = "users"
-
+#samiksh
     id = Column(Integer, primary_key=True, autoincrement=True)
 
     # TELEGRAM ID stored as TEXT (correct)
