@@ -2,9 +2,12 @@ from aiogram import Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
+from datetime import datetime, timedelta
+
 from backend.app.db.session import async_session
-from backend.app.db.models import User
+from backend.app.db.models import User, Payment
+from backend.bot.bot import bot
 
 ADMIN_ID = 5793624035
 
@@ -31,8 +34,10 @@ async def admin_menu(message: Message):
         "Commands:\n"
         "• /users — View users list\n"
         "• /broadcast — Send message to all users\n"
+        "• /extend — Extend user plan\n"
+        "• /remove — Remove a user\n"
         "• /revenue — Total revenue\n"
-        "• /revenue_month — This month's revenue\n"
+        "• /revenue_month — This month revenue\n"
         "• /revenue_summary — Revenue history\n"
     )
 
@@ -54,7 +59,7 @@ async def users_main_menu(message: Message):
             [InlineKeyboardButton(text="🔴 Expired Users", callback_data="users_expired_0")],
         ]
     )
-    
+
     await message.answer("Select a category:", reply_markup=keyboard)
 
 
@@ -137,8 +142,6 @@ async def broadcast(message: Message):
     sent = 0
     failed = 0
 
-    from backend.bot.bot import bot
-
     for uid in users:
         try:
             await bot.send_message(uid, text_to_send)
@@ -152,3 +155,172 @@ async def broadcast(message: Message):
         f"❌ Failed: {failed}",
         parse_mode="HTML"
     )
+
+
+# -------------------------------------------------------
+# FEATURE C: REVENUE — TOTAL
+# -------------------------------------------------------
+@router.message(Command("revenue")))
+async def revenue(message: Message):
+
+    if not is_admin(message):
+        return
+
+    async with async_session() as session:
+
+        total = (await session.execute(
+            select(func.sum(Payment.amount)).where(Payment.status == "paid")
+        )).scalar() or 0
+
+    await message.answer(f"💰 <b>Total Revenue:</b> ₹{total}", parse_mode="HTML")
+
+
+# -------------------------------------------------------
+# FEATURE C2: MONTHLY REVENUE
+# -------------------------------------------------------
+@router.message(Command("revenue_month"))
+async def revenue_month(message: Message):
+
+    if not is_admin(message):
+        return
+
+    async with async_session() as session:
+
+        total = (await session.execute(
+            select(func.sum(Payment.amount)).where(
+                Payment.status == "paid",
+                func.date_trunc("month", Payment.created_at)
+                == func.date_trunc("month", func.now())
+            )
+        )).scalar() or 0
+
+    await message.answer(
+        f"📆 <b>Revenue This Month:</b> ₹{total}",
+        parse_mode="HTML"
+    )
+
+
+# -------------------------------------------------------
+# FEATURE C3: MONTHLY REVENUE SUMMARY
+# -------------------------------------------------------
+@router.message(Command("revenue_summary"))
+async def revenue_summary(message: Message):
+
+    if not is_admin(message):
+        return
+
+    async with async_session() as session:
+
+        rows = await session.execute(
+            text("""
+            SELECT DATE_TRUNC('month', created_at) AS month,
+                   SUM(amount) AS total
+            FROM payments
+            WHERE status = 'paid'
+            GROUP BY month
+            ORDER BY month DESC;
+            """)
+        )
+
+        data = rows.fetchall()
+
+    if not data:
+        return await message.answer("No payment history found.")
+
+    msg = "📅 <b>Monthly Revenue Summary:</b>\n\n"
+
+    for month, total in data:
+        formatted = month.strftime("%B %Y")
+        msg += f"• {formatted}: ₹{total}\n"
+
+    await message.answer(msg, parse_mode="HTML")
+
+
+# -------------------------------------------------------
+# FEATURE D: EXTEND USER ACCESS
+# -------------------------------------------------------
+@router.message(Command("extend"))
+async def extend_user(message: Message):
+
+    if not is_admin(message):
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 3:
+        return await message.answer(
+            "Usage:\n/extend <telegram_id> <days>", parse_mode="HTML"
+        )
+
+    tg_id = parts[1]
+    days = int(parts[2])
+
+    async with async_session() as session:
+
+        result = await session.execute(select(User).where(User.telegram_id == tg_id))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return await message.answer("❌ User not found")
+
+        if user.expiry_date and user.expiry_date > datetime.utcnow():
+            user.expiry_date += timedelta(days=days)
+        else:
+            user.expiry_date = datetime.utcnow() + timedelta(days=days)
+
+        user.status = "active"
+
+        await session.commit()
+
+    await message.answer(
+        f"✅ Extended {tg_id} by {days} days.\nNew Expiry: {user.expiry_date}",
+        parse_mode="HTML"
+    )
+
+    try:
+        await bot.send_message(
+            tg_id,
+            f"🎉 Your plan has been extended by {days} days!\n"
+            f"New expiry: {user.expiry_date.strftime('%d-%m-%Y')}"
+        )
+    except:
+        pass
+
+
+# -------------------------------------------------------
+# FEATURE D2: REMOVE USER
+# -------------------------------------------------------
+@router.message(Command("remove"))
+async def remove_user(message: Message):
+
+    if not is_admin(message):
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 2:
+        return await message.answer("Usage:\n/remove <telegram_id>", parse_mode="HTML")
+
+    tg_id = parts[1]
+
+    async with async_session() as session:
+
+        result = await session.execute(select(User).where(User.telegram_id == tg_id))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return await message.answer("❌ User not found")
+
+        user.status = "inactive"
+        user.expiry_date = datetime.utcnow()
+
+        await session.commit()
+
+    await message.answer(f"🗑 User {tg_id} removed.", parse_mode="HTML")
+
+    try:
+        await bot.send_message(
+            tg_id, "❌ Your access has been removed by admin."
+        )
+    except:
+        pass
