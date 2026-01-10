@@ -8,14 +8,14 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # Telegram ID stored as TEXT
-    telegram_id = Column(Text, unique=True, nullable=False)
+    # Correct: TELEGRAM ID stored as text
+    telegram_id = Column(Text, nullable=False, unique=True)
 
     telegram_username = Column(Text, nullable=True)
 
     plan_id = Column(Text, nullable=True)
     razorpay_payment_id = Column(Text, nullable=True)
-    status = Column(Text, default="active")
+    status = Column(Text, nullable=True, default="active")
 
     start_date = Column(DateTime, nullable=True)
     expiry_date = Column(DateTime, nullable=True)
