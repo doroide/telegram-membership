@@ -6,7 +6,7 @@ from sqlalchemy import select, func, text
 from datetime import datetime, timedelta
 
 from backend.app.db.session import async_session
-from backend.app.db.models import User, Payment
+from backend.app.db.models import User
 from backend.bot.bot import bot
 
 ADMIN_ID = 5793624035
@@ -160,17 +160,14 @@ async def broadcast(message: Message):
 # -------------------------------------------------------
 # FEATURE C: REVENUE — TOTAL
 # -------------------------------------------------------
-@router.message(Command("revenue")))
+@router.message(Command("revenue"))
 async def revenue(message: Message):
 
     if not is_admin(message):
         return
 
-    async with async_session() as session:
-
-        total = (await session.execute(
-            select(func.sum(Payment.amount)).where(Payment.status == "paid")
-        )).scalar() or 0
+    # Payment model not implemented yet, so we will show ZERO
+    total = 0
 
     await message.answer(f"💰 <b>Total Revenue:</b> ₹{total}", parse_mode="HTML")
 
@@ -184,15 +181,7 @@ async def revenue_month(message: Message):
     if not is_admin(message):
         return
 
-    async with async_session() as session:
-
-        total = (await session.execute(
-            select(func.sum(Payment.amount)).where(
-                Payment.status == "paid",
-                func.date_trunc("month", Payment.created_at)
-                == func.date_trunc("month", func.now())
-            )
-        )).scalar() or 0
+    total = 0  # placeholder until Payment model is added
 
     await message.answer(
         f"📆 <b>Revenue This Month:</b> ₹{total}",
@@ -201,7 +190,7 @@ async def revenue_month(message: Message):
 
 
 # -------------------------------------------------------
-# FEATURE C3: MONTHLY REVENUE SUMMARY
+# FEATURE C3: REVENUE SUMMARY
 # -------------------------------------------------------
 @router.message(Command("revenue_summary"))
 async def revenue_summary(message: Message):
@@ -209,31 +198,7 @@ async def revenue_summary(message: Message):
     if not is_admin(message):
         return
 
-    async with async_session() as session:
-
-        rows = await session.execute(
-            text("""
-            SELECT DATE_TRUNC('month', created_at) AS month,
-                   SUM(amount) AS total
-            FROM payments
-            WHERE status = 'paid'
-            GROUP BY month
-            ORDER BY month DESC;
-            """)
-        )
-
-        data = rows.fetchall()
-
-    if not data:
-        return await message.answer("No payment history found.")
-
-    msg = "📅 <b>Monthly Revenue Summary:</b>\n\n"
-
-    for month, total in data:
-        formatted = month.strftime("%B %Y")
-        msg += f"• {formatted}: ₹{total}\n"
-
-    await message.answer(msg, parse_mode="HTML")
+    await message.answer("📅 No payment history yet (Payment model not implemented).")
 
 
 # -------------------------------------------------------
