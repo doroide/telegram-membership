@@ -150,9 +150,29 @@ async def scheduler():
 # ============================
 
 def include_admin_routers():
-    """Load admin handlers from single admin.py file."""
-    from backend.bot.handlers import admin
-    dp.include_router(admin.admin_router)
+    from backend.bot.handlers import (
+        admin_broadcast,
+        admin_expired,
+        admin_extend,
+        admin_notify,
+        admin_panel,
+        admin_remove,
+        admin_retry,
+        admin_stats,
+        admin_users,
+        start
+    )
+
+    dp.include_router(admin_broadcast.router)
+    dp.include_router(admin_expired.router)
+    dp.include_router(admin_extend.router)
+    dp.include_router(admin_notify.router)
+    dp.include_router(admin_panel.router)
+    dp.include_router(admin_remove.router)
+    dp.include_router(admin_retry.router)
+    dp.include_router(admin_stats.router)
+    dp.include_router(admin_users.router)
+    dp.include_router(start.router)
 
 
 # ============================
