@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.app.api.routes.admin import router as admin_router
 
 # Import Telegram bot + dispatcher + admin routers
-from backend.app.bot.bot import bot, dp, include_admin_routers
+from backend.bot.bot import bot, dp, include_admin_routers
 
 # Razorpay webhook router
 from backend.app.api.webhook import router as razorpay_router
