@@ -1,15 +1,22 @@
 import os
+import asyncio
+from datetime import datetime
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from sqlalchemy import select
 
-# Import PLANS correctly
+# Import PLANS
 from backend.app.config.plans import PLANS
 
-# Payment generator
+# Import payment generator
 from backend.app.services.payment_service import create_payment_link
+
+# DB session + model
+from backend.app.db.session import async_session
+from backend.app.db.models import User
 
 
 # ============================
@@ -33,7 +40,7 @@ dp = Dispatcher()
 # CHANNEL ID
 # ============================
 
-CHANNEL_ID = -1002782697491  # Replace with your PRIVATE channel ID
+CHANNEL_ID = -1002782697491       # Your PRIVATE channel ID
 
 
 # ============================
@@ -41,7 +48,7 @@ CHANNEL_ID = -1002782697491  # Replace with your PRIVATE channel ID
 # ============================
 
 async def get_access_link():
-    """Generates a fresh invite link for the user."""
+    """Generate a fresh invite link."""
     invite = await bot.create_chat_invite_link(
         CHANNEL_ID,
         creates_join_request=False
@@ -50,7 +57,7 @@ async def get_access_link():
 
 
 # ============================
-# /start — show plans
+# /start — Subscription Plans
 # ============================
 
 @dp.message(Command("start"))
@@ -66,7 +73,7 @@ async def start(message):
 
     await message.answer(
         "🎬 <b>Premium Movies Subscription</b>\n\n"
-        "Choose your subscription plan ⬇️",
+        "Choose your plan below 👇",
         reply_markup=keyboard
     )
 
@@ -90,20 +97,61 @@ async def handle_plan(callback):
         f"📌 <b>Plan Selected</b>\n\n"
         f"📦 {plan['label']}\n"
         f"💰 Price: ₹{plan['price']}\n\n"
-        f"🔗 Pay Here:\n{payment['short_url']}\n\n"
-        f"After successful payment, you will receive channel access automatically."
+        f"🔗 Pay here:\n{payment['short_url']}\n\n"
+        f"After payment, channel access will be sent automatically."
     )
 
     await callback.answer()
 
 
 # ============================
-# ADMIN ROUTERS LOADER
+# AUTO-REMOVE EXPIRED USERS
+# ============================
+
+async def remove_expired_users():
+    """Check DB & remove expired users from channel automatically."""
+    async with async_session() as session:
+        result = await session.execute(select(User))
+        users = result.scalars().all()
+
+    for u in users:
+        if u.expiry_date and u.expiry_date < datetime.now() and u.is_active:
+            u.is_active = False
+
+            # Remove from channel
+            try:
+                await bot.ban_chat_member(CHANNEL_ID, int(u.telegram_id))
+            except:
+                pass
+
+            # Unban to allow future rejoin
+            try:
+                await bot.unban_chat_member(CHANNEL_ID, int(u.telegram_id))
+            except:
+                pass
+
+            # Update database
+            async with async_session() as session:
+                session.add(u)
+                await session.commit()
+
+    print("⏳ Auto-check complete: expired users removed.")
+
+
+async def scheduler():
+    """Runs auto-removal every hour."""
+    while True:
+        await remove_expired_users()
+        await asyncio.sleep(3600)   # every 1 hour
+
+
+# ============================
+# LOAD ALL ADMIN ROUTERS
 # ============================
 
 def include_admin_routers():
-    """Imports admin handlers dynamically to avoid circular imports."""
-    from backend.bot.handlers import (
+    """Loads admin related handlers dynamically."""
+    from backend.app.bot.handlers import (
         admin_panel,
         admin_stats,
         admin_extend,
@@ -111,7 +159,9 @@ def include_admin_routers():
         admin_users,
         admin_broadcast,
         admin_expired,
-        admin_retry
+        admin_retry,
+        admin_add_user,      # Make sure this file exists
+        admin_find           # Make sure this file exists
     )
 
     dp.include_router(admin_panel.router)
@@ -122,3 +172,17 @@ def include_admin_routers():
     dp.include_router(admin_broadcast.router)
     dp.include_router(admin_expired.router)
     dp.include_router(admin_retry.router)
+    dp.include_router(admin_add_user.router)
+    dp.include_router(admin_find.router)
+
+
+# ============================
+# ON STARTUP
+# ============================
+
+async def on_startup():
+    include_admin_routers()
+    asyncio.create_task(scheduler())
+    print("🚀 Bot started successfully with auto-expiry scheduler!")
+
+
