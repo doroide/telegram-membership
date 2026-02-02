@@ -1,53 +1,69 @@
-import asyncio
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.types import Message
-from aiogram.filters import Command
+from sqlalchemy import select
+
 from backend.app.db.session import async_session
-from backend.app.db.models import User
+from backend.app.db.models import Channel
+from backend.bot.utils.admin import is_admin
 
 router = Router()
 
-ADMIN_ID = 5793624035  # YOUR ADMIN ID
 
+# ======================================================
+# /addchannel
+# Format:
+# /addchannel name | chat_id | description
+# ======================================================
 
-@router.message(Command("broadcast"))
-async def broadcast(message: Message):
-    # Import bot INSIDE to avoid circular import
-    from backend.bot.bot import bot
+@router.message(F.text.startswith("/addchannel"))
+async def add_channel(message: Message):
+    if not is_admin(message.from_user.id):
+        return
 
-    if message.from_user.id != ADMIN_ID:
-        return await message.answer("❌ You are not authorized.")
-
-    text = message.text.replace("/broadcast", "").strip()
-
-    if not text:
-        return await message.answer(
-            "📢 <b>Broadcast Usage:</b>\n\n"
-            "`/broadcast Your message here...`",
-            parse_mode="HTML"
+    try:
+        _, data = message.text.split(" ", 1)
+        name, chat_id, description = [x.strip() for x in data.split("|")]
+    except Exception:
+        await message.answer(
+            "Usage:\n"
+            "/addchannel Name | -100123456789 | Description"
         )
-
-    await message.answer("📡 Sending broadcast to all active users…")
+        return
 
     async with async_session() as session:
-        result = await session.execute(User.select().where(User.status == "active"))
-        users = result.scalars().all()
+        channel = Channel(
+            name=name,
+            telegram_chat_id=int(chat_id),
+            description=description
+        )
 
-    success = 0
-    failed = 0
+        session.add(channel)
+        await session.commit()
 
-    for user in users:
-        try:
-            await bot.send_message(user.telegram_id, text)
-            success += 1
-        except Exception:
-            failed += 1
+    await message.answer(f"✅ Channel '{name}' added successfully")
 
-        await asyncio.sleep(0.05)
 
-    await message.answer(
-        f"📤 <b>Broadcast Completed</b>\n"
-        f"🟢 Delivered: {success}\n"
-        f"🔴 Failed: {failed}",
-        parse_mode="HTML"
-    )
+# ======================================================
+# /channels_admin → list channels
+# ======================================================
+
+@router.message(F.text == "/channels_admin")
+async def list_channels(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+
+    async with async_session() as session:
+        result = await session.execute(select(Channel))
+        channels = result.scalars().all()
+
+    if not channels:
+        await message.answer("No channels added yet.")
+        return
+
+    text = "📺 Channels\n\n"
+
+    for ch in channels:
+        status = "✅" if ch.is_active else "❌"
+        text += f"{status} {ch.name} ({ch.telegram_chat_id})\n"
+
+    await message.answer(text)

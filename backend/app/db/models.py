@@ -1,49 +1,40 @@
-from sqlalchemy import Column, Integer,String, Text, Boolean, DateTime
-from sqlalchemy.sql import func
-from backend.app.db.base import Base   # ✅ FIXED IMPORT
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    BigInteger,
+    Numeric
+)
 
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from backend.app.db.base import Base
+
+
+# =========================================================
+# USER (existing + extended)
+# =========================================================
 
 class User(Base):
     __tablename__ = "users"
-#samiksh
-    id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # TELEGRAM ID stored as TEXT (correct)
-    telegram_id = Column(String, nullable=False,)
+    id = Column(BigInteger, primary_key=True)  # telegram user id
 
-    telegram_username = Column(Text, nullable=True)
+    username = Column(String(255), nullable=True)
+    full_name = Column(String(255), nullable=True)
 
-    plan_id = Column(Text, nullable=True)
-    razorpay_payment_id = Column(Text, nullable=True)
-    status = Column(Text, nullable=True, default="active")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    start_date = Column(DateTime, nullable=True)
-    expiry_date = Column(DateTime, nullable=True)
-    next_renewal = Column(DateTime, nullable=True)
-    payment_method = Column(Text, nullable=True)
+    # ✅ NEW (tier system)
+    total_spent = Column(Numeric, default=0)
+    tier = Column(String(20), default="Budget")
 
-    attempts_failed = Column(Integer, default=0)
-    reminded_3d = Column(Boolean, default=False)
-    reminded_1d = Column(Boolean, default=False)
-
-    created_at = Column(DateTime, default=func.now())
-
-
-from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
-from sqlalchemy.sql import func
-
-
-class Payment(Base):
-    __tablename__ = "payments"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-
-    razorpay_payment_id = Column(Text, nullable=False)
-    amount = Column(Integer, nullable=False)
-    plan_id = Column(Text, nullable=True)
-
-    status = Column(Text, nullable=True)
-
-    created_at = Column(DateTime, default=func.now())
-
+    # relationships
+    memberships = relationship("Membership", back_populates="user")
+    payments = relationship("Payment", back_populates="user")
+    acces
