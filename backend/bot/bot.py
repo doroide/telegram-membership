@@ -150,29 +150,24 @@ async def scheduler():
 # ============================
 
 def include_admin_routers():
-    from backend.bot.handlers import (
-        admin_broadcast,
-        admin_expired,
-        admin_extend,
-        admin_notify,
-        admin_panel,
-        admin_remove,
-        admin_retry,
-        admin_stats,
-        admin_users,
-        start
-    )
 
-    dp.include_router(admin_broadcast.router)
-    dp.include_router(admin_expired.router)
-    dp.include_router(admin_extend.router)
-    dp.include_router(admin_notify.router)
-    dp.include_router(admin_panel.router)
-    dp.include_router(admin_remove.router)
-    dp.include_router(admin_retry.router)
-    dp.include_router(admin_stats.router)
-    dp.include_router(admin_users.router)
-    dp.include_router(start.router)
+    from backend.bot.handlers.user_channels import router as user_channels_router
+    from backend.bot.handlers.admin_channels import router as admin_channels_router
+    from backend.bot.handlers.admin_approval import router as admin_approval_router
+    from backend.bot.handlers.user_myplan import router as user_myplan_router
+    from backend.bot.handlers.admin_stats_simple import router as admin_stats_router
+    from backend.bot.handlers.admin_broadcast_simple import router as admin_broadcast_router
+    from backend.bot.handlers.admin_export import router as admin_export_router
+    from backend.bot.handlers.user_renewal import router as user_renewal_router
+
+    dp.include_router(user_channels_router)
+    dp.include_router(admin_channels_router)
+    dp.include_router(admin_approval_router)
+    dp.include_router(user_myplan_router)
+    dp.include_router(admin_stats_router)
+    dp.include_router(admin_broadcast_router)
+    dp.include_router(admin_export_router)
+    dp.include_router(user_renewal_router)
 
 
 # ============================
