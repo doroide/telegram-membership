@@ -10,6 +10,11 @@ from fastapi.staticfiles import StaticFiles
 # Import admin dashboard router
 from backend.app.api.routes.admin import router as admin_router
 
+from backend.app.routes.webhook import router as webhook_router
+
+app.include_router(webhook_router, prefix="/api")
+
+
 # Import Telegram bot + dispatcher + admin routers
 from backend.bot.bot import bot, dp, include_admin_routers
 
