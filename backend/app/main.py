@@ -3,52 +3,41 @@ import asyncio
 from fastapi import FastAPI, Request
 from aiogram.types import Update
 
-# Templates for dashboard
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-# Import admin dashboard router
-from backend.app.api.routes.admin import router as admin_router
-
-from backend.app.routes.webhook import router as webhook_router
-
-app.include_router(webhook_router, prefix="/api")
-
-
-# Import Telegram bot + dispatcher + admin routers
-from backend.bot.bot import bot, dp, include_admin_routers
-
-# Razorpay webhook router
-from backend.app.api.webhook import router as razorpay_router
-
-# Expiry checker (manual worker)
-from backend.app.tasks.expiry_checker import run_expiry_check
-
-
-# ============================
-# INIT FASTAPI APP
-# ============================
+# ======================================================
+# CREATE APP FIRST  ⭐ IMPORTANT
+# ======================================================
 
 app = FastAPI()
 
-# Dashboard Templates
 templates = Jinja2Templates(directory="backend/app/templates")
 
 
-# ============================
-# INCLUDE API ROUTERS
-# ============================
+# ======================================================
+# IMPORT ROUTERS AFTER app exists
+# ======================================================
 
-# Dashboard /admin/dashboard
+from backend.app.api.routes.admin import router as admin_router
+from backend.app.routes.webhook import router as webhook_router
+from backend.app.api.webhook import router as razorpay_router
+from backend.bot.bot import bot, dp, include_admin_routers
+from backend.app.tasks.expiry_checker import run_expiry_check
+
+
+# ======================================================
+# INCLUDE ROUTERS
+# ======================================================
+
 app.include_router(admin_router)
-
-# Razorpay webhook
+app.include_router(webhook_router, prefix="/api")
 app.include_router(razorpay_router, prefix="/api")
 
 
-# ============================
-# TELEGRAM WEBHOOK ENDPOINT
-# ============================
+# ======================================================
+# TELEGRAM WEBHOOK
+# ======================================================
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
@@ -59,17 +48,16 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 
-# ============================
-# STARTUP EVENT
-# ============================
+# ======================================================
+# STARTUP
+# ======================================================
 
 @app.on_event("startup")
 async def on_startup():
 
     print("🚀 Startup: Loading admin routers")
-    include_admin_routers()   # Load bot admin commands
+    include_admin_routers()
 
-    # WEBHOOK CONFIGURATION
     webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
     current = await bot.get_webhook_info()
 
@@ -79,25 +67,21 @@ async def on_startup():
         await bot.set_webhook(webhook_url)
         print("✅ Webhook installed:", webhook_url)
     else:
-        print("ℹ️ Webhook already installed, skipping")
-
-    # ============================
-    # EXPIRY CHECK BACKGROUND TASK
-    # ============================
+        print("ℹ️ Webhook already installed")
 
     async def expiry_job():
         while True:
             await run_expiry_check()
             print("⏳ Expiry check completed")
-            await asyncio.sleep(3600)   # runs every 1 hour
+            await asyncio.sleep(3600)
 
     asyncio.create_task(expiry_job())
     print("🟢 Expiry Worker Running")
 
 
-# ============================
-# ROOT CHECK ENDPOINT
-# ============================
+# ======================================================
+# HEALTH CHECK
+# ======================================================
 
 @app.get("/")
 async def root():
