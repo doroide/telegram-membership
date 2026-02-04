@@ -3,13 +3,10 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from backend.app.db.models import Membership, User, Channel
+from backend.bot.bot import bot
 
 
 class MembershipService:
-
-    # ============================================
-    # PLAN → DAYS mapping
-    # ============================================
 
     PLAN_DAYS = {
         "1m": 30,
@@ -19,10 +16,6 @@ class MembershipService:
         "lifetime": 36500
     }
 
-    # ============================================
-    # Handle successful Razorpay payment
-    # ============================================
-
     @staticmethod
     async def handle_successful_payment(session, user_id: int, plan_id: str, amount: float):
 
@@ -31,19 +24,34 @@ class MembershipService:
         now = datetime.utcnow()
         new_expiry = now + timedelta(days=days)
 
-        # ----------------------------------------
-        # update user's total spent
-        # ----------------------------------------
-
+        # ------------------------------
+        # Update user spend
+        # ------------------------------
         user = await session.get(User, user_id)
-
         if user:
             user.total_spent += amount
 
-        # ----------------------------------------
-        # find active membership
-        # ----------------------------------------
+        # ------------------------------
+        # Get first active channel (Phase 1 simple logic)
+        # ------------------------------
+        result = await session.execute(select(Channel))
+        channel = result.scalars().first()
 
+        if not channel:
+            print("⚠️ No channel configured")
+            return
+
+        # ------------------------------
+        # Create invite link
+        # ------------------------------
+        invite = await bot.create_chat_invite_link(
+            chat_id=channel.telegram_chat_id,
+            member_limit=1
+        )
+
+        # ------------------------------
+        # Find membership
+        # ------------------------------
         result = await session.execute(
             select(Membership).where(
                 Membership.user_id == user_id,
@@ -53,22 +61,25 @@ class MembershipService:
 
         membership = result.scalar_one_or_none()
 
-        # ----------------------------------------
-        # extend or create
-        # ----------------------------------------
-
         if membership:
-            # extend from current expiry if future
-            base_date = max(membership.expiry_date, now)
-            membership.expiry_date = base_date + timedelta(days=days)
-
+            base = max(membership.expiry_date, now)
+            membership.expiry_date = base + timedelta(days=days)
         else:
             membership = Membership(
                 user_id=user_id,
-                channel_id=None,  # can be assigned later
+                channel_id=channel.id,
                 plan=plan_id,
                 start_date=now,
                 expiry_date=new_expiry,
                 is_active=True
             )
             session.add(membership)
+
+        # ------------------------------
+        # Send invite link to user
+        # ------------------------------
+        await bot.send_message(
+            user_id,
+            f"✅ Payment successful!\n\n"
+            f"Here is your channel access:\n{invite.invite_link}"
+        )
