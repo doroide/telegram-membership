@@ -1,18 +1,22 @@
 import asyncio
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env automatically
 
 from backend.app.db.base import Base
 from backend.app.db.session import engine
-
-# VERY IMPORTANT: this imports all models
-# so SQLAlchemy knows what tables to create
 from backend.app.db import models
 
 
 async def init():
     async with engine.begin() as conn:
+        print("⚠️ Dropping old tables...")
+        await conn.run_sync(Base.metadata.drop_all)
+
+        print("✅ Creating fresh tables...")
         await conn.run_sync(Base.metadata.create_all)
 
-    print("✅ All tables created successfully")
+    print("🚀 Database reset complete")
 
 
 if __name__ == "__main__":
