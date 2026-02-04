@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import select
 
@@ -19,20 +20,24 @@ class MembershipService:
     @staticmethod
     async def handle_successful_payment(session, user_id: int, plan_id: str, amount: float):
 
+        # ✅ ALWAYS convert money to Decimal
+        amount = Decimal(str(amount))
+
         days = MembershipService.PLAN_DAYS.get(plan_id, 30)
 
         now = datetime.utcnow()
         new_expiry = now + timedelta(days=days)
 
         # ------------------------------
-        # Update user spend
+        # Update user spend safely
         # ------------------------------
         user = await session.get(User, user_id)
+
         if user:
-            user.total_spent += amount
+            user.total_spent = (user.total_spent or Decimal("0")) + amount
 
         # ------------------------------
-        # Get first active channel (Phase 1 simple logic)
+        # Get first channel
         # ------------------------------
         result = await session.execute(select(Channel))
         channel = result.scalars().first()
@@ -50,7 +55,7 @@ class MembershipService:
         )
 
         # ------------------------------
-        # Find membership
+        # Membership logic
         # ------------------------------
         result = await session.execute(
             select(Membership).where(
@@ -76,10 +81,9 @@ class MembershipService:
             session.add(membership)
 
         # ------------------------------
-        # Send invite link to user
+        # Send invite
         # ------------------------------
         await bot.send_message(
             user_id,
-            f"✅ Payment successful!\n\n"
-            f"Here is your channel access:\n{invite.invite_link}"
+            f"✅ Payment successful!\n\nHere is your access:\n{invite.invite_link}"
         )
