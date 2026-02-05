@@ -59,7 +59,7 @@ from backend.app.api.routes.admin import router as admin_router
 from backend.app.api.webhook import router as razorpay_router
 from backend.app.tasks.expiry_checker import run_expiry_check
 
-app.include_router(admin_router)
+
 app.include_router(razorpay_router, prefix="/api")
 
 
