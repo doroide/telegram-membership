@@ -79,8 +79,18 @@ class Membership(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False)
 
-    # Plan chosen manually (A/B/C/LIFETIME)
     plan_slab = Column(String)
 
-    # validity selected manually (days)
-    validity_days_
+    validity_days = Column(Integer)   # ✅ FIXED LINE
+
+    amount_paid = Column(Integer)
+
+    start_date = Column(DateTime(timezone=True), server_default=func.now())
+    expiry_date = Column(DateTime(timezone=True))
+
+    is_active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="memberships")
+    channel = relationship("Channel", back_populates="memberships")
