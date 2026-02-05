@@ -1,46 +1,25 @@
-import time
 import razorpay
-from backend.app.razorpay_client import client
+import os
 
 
-def create_payment_link(amount_in_rupees: int, user_id: int, plan_id: str):
-    """
-    Creates Razorpay payment link with retry handling for rate limits.
-    """
+razorpay_client = razorpay.Client(
+    auth=(os.getenv("RAZORPAY_KEY"), os.getenv("RAZORPAY_SECRET"))
+)
 
-    data = {
-        "amount": int(amount_in_rupees) * 100,       # convert rupees → paise
+
+async def create_payment_link(user_id: int, channel_id: int, days: int, price: int):
+
+    payment = razorpay_client.payment_link.create({
+        "amount": price * 100,  # paise
         "currency": "INR",
         "accept_partial": False,
-        "description": f"Subscription payment ({plan_id})",
-
-        # IMPORTANT: telegram_id should be INTEGER, not string
+        "description": "Channel Subscription",
         "notes": {
-            "telegram_id": int(user_id),
-            "plan_id": plan_id,
-        },
-
-        "notify": {
-            "sms": False,
-            "email": False
+            "telegram_id": user_id,
+            "channel_id": channel_id,
+            "validity_days": days,
+            "amount": price
         }
-    }
+    })
 
-    try:
-        # Attempt 1
-        return client.payment_link.create(data)
-
-    except razorpay.errors.BadRequestError as e:
-        if "Too many requests" in str(e):
-            print("⚠️ Razorpay rate-limit hit! Retrying in 1 second...")
-            time.sleep(1)
-            try:
-                # Attempt 2 after 1-second pause
-                return client.payment_link.create(data)
-
-            except Exception as e2:
-                print("❌ Second attempt failed:", str(e2))
-                return {"error": "rate_limit"}
-
-        # If it's not rate limit, raise error normally
-        raise e
+    return payment["short_url"]

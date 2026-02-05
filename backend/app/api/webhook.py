@@ -1,140 +1,152 @@
 import os
 import hmac
 import hashlib
-from fastapi import APIRouter, Request, Header, HTTPException
-from sqlalchemy import select
 from datetime import datetime, timedelta
 
+from fastapi import APIRouter, Request, Header, HTTPException
+from sqlalchemy import select
+
 from backend.app.db.session import async_session
-from backend.app.db.models import User
-from backend.bot.bot import bot, get_access_link
+from backend.app.db.models import User, Membership, Channel
+from backend.bot.bot import bot
+
 
 router = APIRouter()
 
-# Razorpay secret for signature verification
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
 
-# Plan durations
-PLANS = {
-    "plan_199_1m": {"duration_days": 30},
-    "plan_399_3m": {"duration_days": 90},
-    "plan_599_6m": {"duration_days": 180},
-    "plan_799_12m": {"duration_days": 365},
-}
 
-CHANNEL_ID = -1002782697491
-
-
+# =====================================================
+# SIGNATURE VERIFICATION
+# =====================================================
 def verify_signature(body: str, signature: str):
-    """Verify Razorpay webhook signature using HMAC SHA256."""
     if not RAZORPAY_WEBHOOK_SECRET:
-        raise RuntimeError("RAZORPAY_WEBHOOK_SECRET missing in environment variables")
+        raise RuntimeError("RAZORPAY_WEBHOOK_SECRET missing")
 
-    generated_signature = hmac.new(
-        key=RAZORPAY_WEBHOOK_SECRET.encode(),
-        msg=body.encode(),
-        digestmod=hashlib.sha256
+    generated = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode(),
+        body.encode(),
+        hashlib.sha256
     ).hexdigest()
 
-    return hmac.compare_digest(generated_signature, signature)
+    return hmac.compare_digest(generated, signature)
 
 
+# =====================================================
+# WEBHOOK
+# =====================================================
 @router.post("/webhook")
-async def razorpay_webhook(request: Request, 
-                           x_razorpay_signature: str = Header(None)):
+async def razorpay_webhook(
+    request: Request,
+    x_razorpay_signature: str = Header(None)
+):
     body = await request.body()
-    payload = request.json()
+    body_str = body.decode()
 
-    # 1. Verify Signature (SECURITY STEP)
-    try:
-        body_str = body.decode()
-        data = await request.json()
-        if not verify_signature(body_str, x_razorpay_signature):
-            raise HTTPException(status_code=400, detail="Invalid signature")
-    except Exception as e:
-        print("❌ Signature verification failed:", e)
+    # 1️⃣ VERIFY SIGNATURE
+    if not verify_signature(body_str, x_razorpay_signature):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    print("⚡ Valid Razorpay Webhook:", data)
+    data = await request.json()
 
     event = data.get("event")
-    payment = data.get("payload", {}).get("payment", {}).get("entity", {})
-    notes = payment.get("notes", {})
 
-    plan_id = notes.get("plan_id")
-    telegram_id = notes.get("telegram_id")
-
-    if not plan_id or not telegram_id:
-        return {"error": "missing notes"}
-
-    if plan_id not in PLANS:
-        return {"error": "invalid plan_id"}
-
-    # Only process successful payments
+    # only process successful payments
     if event != "payment.captured":
         return {"status": "ignored"}
 
-    duration_days = PLANS[plan_id]["duration_days"]
-    telegram_id_str = str(telegram_id)
+    payment = data.get("payload", {}).get("payment", {}).get("entity", {})
+    notes = payment.get("notes", {})
 
-    # 2. PROCESS USER
+    # =================================================
+    # READ NOTES (VERY IMPORTANT)
+    # =================================================
+    try:
+        telegram_id = int(notes["telegram_id"])
+        channel_id = int(notes["channel_id"])
+        validity_days = int(notes["validity_days"])
+        amount = int(notes["amount"])
+    except:
+        return {"error": "invalid notes"}
+
+    expiry_date = datetime.utcnow() + timedelta(days=validity_days)
+
     try:
         async with async_session() as session:
+
+            # =================================================
+            # GET OR CREATE USER
+            # =================================================
             result = await session.execute(
-                select(User).where(User.telegram_id == telegram_id_str)
+                select(User).where(User.telegram_id == telegram_id)
             )
-            user = result.scalar_one_or_none()
+            user = result.scalar()
 
-            # EXISTING USER - RENEW
-            if user:
-                user.status = "active"
+            if not user:
+                user = User(telegram_id=telegram_id)
+                session.add(user)
+                await session.flush()
 
-                if user.expiry_date and user.expiry_date > datetime.utcnow():
-                    user.expiry_date += timedelta(days=duration_days)
-                else:
-                    user.expiry_date = datetime.utcnow() + timedelta(days=duration_days)
-
-                await session.commit()
-
-                link = await get_access_link()
-                expiry_text = user.expiry_date.strftime("%d-%m-%Y")
-
-                await bot.send_message(
-                    telegram_id_str,
-                    f"✅ <b>Plan Renewed Successfully!</b>\n"
-                    f"🗓 Expiry Date: <b>{expiry_text}</b>\n\n"
-                    f"👉 Your Channel Access Link:\n{link}",
+            # =================================================
+            # CHECK EXISTING MEMBERSHIP
+            # =================================================
+            result = await session.execute(
+                select(Membership).where(
+                    Membership.user_id == user.id,
+                    Membership.channel_id == channel_id,
+                    Membership.is_active == True
                 )
-
-                return {"status": "renewed"}
-
-            # NEW USER
-            expiry_date = datetime.utcnow() + timedelta(days=duration_days)
-
-            new_user = User(
-                telegram_id=telegram_id_str,
-                status="active",
-                plan_id=plan_id,
-                expiry_date=expiry_date,
-                attempts_failed=0
             )
+            membership = result.scalar()
 
-            session.add(new_user)
+            # =================================================
+            # EXTEND OR CREATE
+            # =================================================
+            if membership:
+                # extend existing
+                if membership.expiry_date > datetime.utcnow():
+                    membership.expiry_date += timedelta(days=validity_days)
+                else:
+                    membership.expiry_date = expiry_date
+
+                membership.amount_paid += amount
+
+            else:
+                # create new
+                membership = Membership(
+                    user_id=user.id,
+                    channel_id=channel_id,
+                    validity_days=validity_days,
+                    amount_paid=amount,
+                    expiry_date=expiry_date,
+                    is_active=True
+                )
+                session.add(membership)
+
             await session.commit()
 
-            link = await get_access_link()
-            expiry_text = expiry_date.strftime("%d-%m-%Y")
+            # =================================================
+            # GENERATE INVITE LINK
+            # =================================================
+            channel = await session.get(Channel, channel_id)
 
-            await bot.send_message(
-                telegram_id_str,
-                f"🎉 <b>Payment Successful!</b>\n"
-                f"Welcome to the Premium Channel!\n\n"
-                f"🗓 Expiry: <b>{expiry_text}</b>\n"
-                f"👉 Access Link: {link}",
-            )
+        invite = await bot.create_chat_invite_link(
+            chat_id=channel.telegram_chat_id,
+            member_limit=1
+        )
 
-            return {"status": "created"}
+        expiry_text = membership.expiry_date.strftime("%d-%m-%Y")
+
+        await bot.send_message(
+            telegram_id,
+            f"✅ Payment Successful!\n\n"
+            f"📺 {channel.name}\n"
+            f"🗓 Expiry: {expiry_text}\n\n"
+            f"👉 Join here:\n{invite.invite_link}"
+        )
+
+        return {"status": "success"}
 
     except Exception as e:
-        print("❌ Webhook processing error:", e)
-        raise HTTPException(status_code=500, detail="Internal error")
+        print("❌ Webhook error:", e)
+        raise HTTPException(status_code=500, detail="processing error")

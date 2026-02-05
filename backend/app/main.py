@@ -6,6 +6,33 @@ from aiogram.types import Update
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
+from backend.app.bot.handlers.stats import router as stats_router
+dp.include_router(stats_router)
+
+
+from backend.app.bot.handlers.admin_add_user import router as add_user_router
+
+dp.include_router(add_user_router)
+from backend.app.bot.handlers.start import router as start_router
+
+from backend.app.bot.handlers.add_channel import router as add_channel_router
+dp.include_router(add_channel_router)
+
+
+from backend.app.bot.handlers.broadcast import router as broadcast_router
+dp.include_router(broadcast_router)
+
+
+from backend.app.bot.handlers.renew import router as renew_router
+dp.include_router(renew_router)
+
+
+dp.include_router(start_router)
+
+from backend.app.bot.handlers.user_plans import router as plans_router
+dp.include_router(plans_router)
+
+
 # ======================================================
 # CREATE APP FIRST  ⭐ IMPORTANT
 # ======================================================
