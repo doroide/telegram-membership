@@ -84,7 +84,7 @@ async def telegram_webhook(request: Request):
 async def on_startup():
 
     print("🚀 Startup: Loading admin routers")
-    include_admin_routers()
+  
 
     webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
     current = await bot.get_webhook_info()
