@@ -6,35 +6,9 @@ from aiogram.types import Update
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from backend.app.bot.handlers.stats import router as stats_router
-dp.include_router(stats_router)
-
-
-from backend.app.bot.handlers.admin_add_user import router as add_user_router
-
-dp.include_router(add_user_router)
-from backend.app.bot.handlers.start import router as start_router
-
-from backend.app.bot.handlers.add_channel import router as add_channel_router
-dp.include_router(add_channel_router)
-
-
-from backend.app.bot.handlers.broadcast import router as broadcast_router
-dp.include_router(broadcast_router)
-
-
-from backend.app.bot.handlers.renew import router as renew_router
-dp.include_router(renew_router)
-
-
-dp.include_router(start_router)
-
-from backend.app.bot.handlers.user_plans import router as plans_router
-dp.include_router(plans_router)
-
 
 # ======================================================
-# CREATE APP FIRST  ⭐ IMPORTANT
+# CREATE APP FIRST
 # ======================================================
 
 app = FastAPI()
@@ -43,19 +17,48 @@ templates = Jinja2Templates(directory="backend/app/templates")
 
 
 # ======================================================
-# IMPORT ROUTERS AFTER app exists
+# IMPORT BOT + DP FIRST  ⭐ IMPORTANT
+# ======================================================
+
+from backend.bot.bot import bot, dp, include_admin_routers
+
+
+# ======================================================
+# NOW IMPORT HANDLERS (after dp exists)
+# ======================================================
+
+from backend.app.bot.handlers.stats import router as stats_router
+from backend.app.bot.handlers.admin_add_user import router as add_user_router
+from backend.app.bot.handlers.start import router as start_router
+from backend.app.bot.handlers.add_channel import router as add_channel_router
+from backend.app.bot.handlers.broadcast import router as broadcast_router
+from backend.app.bot.handlers.renew import router as renew_router
+from backend.app.bot.handlers.user_plans import router as plans_router
+from backend.app.bot.handlers.myplans import router as myplans_router
+
+
+# ======================================================
+# REGISTER AIROGRAM ROUTERS  ⭐ ONLY HERE
+# ======================================================
+
+dp.include_router(start_router)
+dp.include_router(plans_router)
+dp.include_router(renew_router)
+dp.include_router(myplans_router)
+dp.include_router(broadcast_router)
+dp.include_router(add_channel_router)
+dp.include_router(add_user_router)
+dp.include_router(stats_router)
+
+
+# ======================================================
+# FASTAPI ROUTES
 # ======================================================
 
 from backend.app.api.routes.admin import router as admin_router
 from backend.app.routes.webhook import router as webhook_router
 from backend.app.api.webhook import router as razorpay_router
-from backend.bot.bot import bot, dp, include_admin_routers
 from backend.app.tasks.expiry_checker import run_expiry_check
-
-
-# ======================================================
-# INCLUDE ROUTERS
-# ======================================================
 
 app.include_router(admin_router)
 app.include_router(webhook_router, prefix="/api")
