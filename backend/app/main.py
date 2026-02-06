@@ -17,9 +17,8 @@ from backend.bot.bot import bot, dp
 # ======================================================
 
 from backend.app.bot.handlers.start import router as start_router
-from backend.app.bot.handlers.user_plans import router as plans_router
 from backend.app.bot.handlers.renew import router as renew_router
-from backend.app.bot.handlers.myplans import router as myplans_router
+
 from backend.app.bot.handlers.broadcast import router as broadcast_router
 from backend.app.bot.handlers.add_channel import router as add_channel_router
 from backend.app.bot.handlers.admin_add_user import router as add_user_router
@@ -34,9 +33,9 @@ from backend.app.bot.handlers.channel_plans import router as channel_plans_route
 # ======================================================
 
 dp.include_router(start_router)
-dp.include_router(plans_router)
+
 dp.include_router(renew_router)
-dp.include_router(myplans_router)
+
 dp.include_router(broadcast_router)
 dp.include_router(add_channel_router)
 dp.include_router(add_user_router)
