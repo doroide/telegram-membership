@@ -93,16 +93,19 @@ from backend.app.services.payment_service import create_payment_link
 # =====================================================
 # USER CLICKED BUY PLAN
 # =====================================================
+
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_plan(callback: CallbackQuery):
 
-    parts = callback.data.split("_")
-
     try:
-        channel_id = int(parts[1])
-        days = int(parts[2])
-        price = int(parts[3])
-    except (IndexError, ValueError):
+        _, channel_id, days, price = callback.data.split("_")
+
+        channel_id = int(channel_id)
+        days = int(days)
+        price = int(price)
+
+    except Exception:
+        print("BAD CALLBACK:", callback.data)  # debug
         await callback.answer("Invalid plan selected ❌", show_alert=True)
         return
 
