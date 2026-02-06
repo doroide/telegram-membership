@@ -94,3 +94,17 @@ class Membership(Base):
 
     user = relationship("User", back_populates="memberships")
     channel = relationship("Channel", back_populates="memberships")
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    channel_id = Column(Integer)
+
+    amount = Column(Float)
+    payment_id = Column(String)
+    status = Column(String)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
