@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select
 from backend.app.db.session import async_session
 from backend.app.db.models import Membership
@@ -14,9 +14,10 @@ async def run_expiry_check():
 
         memberships = result.scalars().all()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         for m in memberships:
+
             if m.expiry_date and m.expiry_date < now:
                 m.is_active = False
                 await session.commit()
