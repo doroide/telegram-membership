@@ -24,6 +24,8 @@ from backend.app.bot.handlers.broadcast import router as broadcast_router
 from backend.app.bot.handlers.add_channel import router as add_channel_router
 from backend.app.bot.handlers.admin_add_user import router as add_user_router
 from backend.app.bot.handlers.stats import router as stats_router
+from backend.app.db.base import Base
+from backend.app.db.session import engine
 
 
 # ======================================================
@@ -74,12 +76,19 @@ async def on_startup():
 
     print("🚀 App starting...")
 
+    # ✅ CREATE TABLES
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    print("✅ Database tables created")
+
     webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
 
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(webhook_url)
 
     print("✅ Webhook installed:", webhook_url)
+
 
     print("🟢 Expiry Worker DISABLED (debug)")   # ✅ INSIDE function
 
