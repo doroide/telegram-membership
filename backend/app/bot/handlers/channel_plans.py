@@ -3,77 +3,117 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardBut
 from sqlalchemy import select
 
 from backend.app.db.session import async_session
-from backend.app.db.models import Channel
-from backend.app.config.plans import PLANS
+from backend.app.db.models import User, Channel
 from backend.app.services.payment_service import create_payment_link
+
 
 router = Router()
 
 
 # =====================================================
-# CHANNEL CLICK → SHOW PLANS
-# callback_data = channel_{id}
+# PLAN SLABS
 # =====================================================
-@router.callback_query(F.data.startswith("channel_"))
-async def show_channel_plans(callback: CallbackQuery):
+
+PLAN_SLABS = {
+    "A": [
+        ("1 Month ₹49", 30, 49),
+        ("4 Months ₹199", 120, 199),
+        ("6 Months ₹299", 180, 299),
+        ("12 Months ₹599", 365, 599),
+        ("Lifetime ₹999", 730, 999),
+    ],
+    "B": [
+        ("1 Month ₹99", 30, 99),
+        ("4 Months ₹299", 120, 299),
+        ("6 Months ₹599", 180, 599),
+        ("12 Months ₹799", 365, 799),
+        ("Lifetime ₹999", 730, 999),
+    ],
+    "C": [
+        ("1 Month ₹199", 30, 199),
+        ("3 Months ₹399", 90, 399),
+        ("6 Months ₹599", 180, 599),
+        ("12 Months ₹799", 365, 799),
+        ("Lifetime ₹999", 730, 999),
+    ],
+}
+
+
+# =====================================================
+# CHANNEL CLICK → SHOW PLANS
+# callback: userch_5
+# =====================================================
+
+@router.callback_query(F.data.startswith("userch_"))
+async def show_plans(callback: CallbackQuery):
+
+    print("CHANNEL CLICK:", callback.data)
 
     channel_id = int(callback.data.split("_")[1])
 
     async with async_session() as session:
-        result = await session.execute(
-            select(Channel).where(Channel.id == channel_id)
+        user = await session.scalar(
+            select(User).where(User.telegram_id == callback.from_user.id)
         )
-        channel = result.scalar_one_or_none()
 
-    if not channel:
-        await callback.answer("Channel not found", show_alert=True)
-        return
+        channel = await session.get(Channel, channel_id)
 
-    keyboard = []
+    slab = user.plan_slab or "A"
 
-    # build buttons from PLANS dict
-    for plan_id, plan in PLANS.items():
+    plans = PLAN_SLABS.get(slab, PLAN_SLABS["A"])
 
-        keyboard.append([
+    buttons = []
+
+    for i, (text, days, price) in enumerate(plans):
+        buttons.append([
             InlineKeyboardButton(
-                text=plan["label"],
-                callback_data=f"buy_{channel.id}_{plan_id}"
+                text=text,
+                callback_data=f"buy_{channel_id}_{i}"
             )
         ])
 
-    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-
     await callback.message.edit_text(
-        f"📺 <b>{channel.name}</b>\n\nChoose your plan 👇",
-        reply_markup=markup
+        f"💳 <b>{channel.name}</b>\n\nChoose your plan:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
-    await callback.answer()
-
 
 # =====================================================
-# BUY PLAN → CREATE PAYMENT LINK
-# callback_data = buy_{channel_id}_{plan_id}
+# BUY PLAN
+# callback: buy_5_2
 # =====================================================
+
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_plan(callback: CallbackQuery):
 
-    _, channel_id, plan_id = callback.data.split("_")
+    print("NEW CALLBACK:", callback.data)
 
-    plan = PLANS.get(plan_id)
+    try:
+        _, channel_id, index = callback.data.split("_")
 
-    payment = create_payment_link(
-        amount=plan["price"],
-        telegram_id=callback.from_user.id,
+        channel_id = int(channel_id)
+        index = int(index)
+
+    except:
+        await callback.answer("Invalid plan ❌", show_alert=True)
+        return
+
+    async with async_session() as session:
+        user = await session.scalar(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+
+    slab = user.plan_slab or "A"
+
+    text, days, price = PLAN_SLABS[slab][index]
+
+    payment_link = await create_payment_link(
+        user_id=callback.from_user.id,
         channel_id=channel_id,
-        plan_id=plan_id
+        days=days,
+        price=price
     )
 
     await callback.message.answer(
-        f"💳 <b>{plan['label']}</b>\n"
-        f"💰 ₹{plan['price']}\n\n"
-        f"👉 Pay here:\n{payment['short_url']}\n\n"
-        f"Access will be granted automatically after payment."
+        f"💳 <b>{text}</b>\n\nPay here:\n{payment_link}\n\nAfter payment you will receive access automatically ✅"
     )
-
-    await callback.answer()

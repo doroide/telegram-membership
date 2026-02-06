@@ -90,6 +90,9 @@ async def show_plans(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_plan(callback: CallbackQuery):
 
+      print("NEW HANDLER RUNNING:", callback.data)
+
+
     try:
         _, channel_id, plan_key = callback.data.split("_")
 
