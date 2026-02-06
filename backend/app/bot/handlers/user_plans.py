@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Channel
+from backend.app.services.payment_service import create_payment_link
 
 
 router = Router()
@@ -12,6 +13,7 @@ router = Router()
 # =====================================================
 # PLAN DEFINITIONS (Lifetime = 2 YEARS = 730 days)
 # =====================================================
+
 PLAN_SLABS = {
     "A": [
         ("1M ₹49", 30, 49),
@@ -36,13 +38,14 @@ PLAN_SLABS = {
     ],
     "LIFETIME": [
         ("Lifetime ₹999", 730, 999),
-    ]
+    ],
 }
 
 
 # =====================================================
-# USER CLICKED A CHANNEL → SHOW PLANS
+# USER CLICKED CHANNEL → SHOW PLANS
 # =====================================================
+
 @router.callback_query(F.data.startswith("userch_"))
 async def show_plans(callback: CallbackQuery):
     telegram_id = callback.from_user.id
@@ -56,7 +59,7 @@ async def show_plans(callback: CallbackQuery):
         user = result.scalar()
 
         if not user:
-            await callback.answer("Contact admin first to activate plan.")
+            await callback.answer("Contact admin first to activate plan ❌", show_alert=True)
             return
 
         slab = user.plan_slab or "A"
@@ -66,29 +69,26 @@ async def show_plans(callback: CallbackQuery):
     plans = PLAN_SLABS.get(slab, PLAN_SLABS["A"])
 
     buttons = []
+
     for text, days, price in plans:
         buttons.append([
             InlineKeyboardButton(
                 text=text,
+                # ✅ CLEAN + SAFE FORMAT
                 callback_data=f"buy_{channel_id}_{days}_{price}"
             )
         ])
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    await callback.message.edit_text(
-        f"💳 {channel.name}\n\nChoose your plan:",
+    # ✅ ALWAYS send new message (prevents Telegram cache issues)
+    await callback.message.answer(
+        f"💳 <b>{channel.name}</b>\n\nChoose your plan:",
         reply_markup=kb
     )
 
+    await callback.answer()
 
-
-from backend.app.services.payment_service import create_payment_link
-
-
-# =====================================================
-# USER CLICKED BUY PLAN
-# =====================================================
 
 # =====================================================
 # USER CLICKED BUY PLAN
@@ -97,7 +97,10 @@ from backend.app.services.payment_service import create_payment_link
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_plan(callback: CallbackQuery):
 
+    print("CALLBACK:", callback.data)  # debug log
+
     try:
+        # Expected format → buy_channel_days_price
         _, channel_id, days, price = callback.data.split("_")
 
         channel_id = int(channel_id)
@@ -105,7 +108,6 @@ async def buy_plan(callback: CallbackQuery):
         price = int(price)
 
     except Exception:
-        print("BAD CALLBACK:", callback.data)  # debug
         await callback.answer("Invalid plan selected ❌", show_alert=True)
         return
 
@@ -117,6 +119,8 @@ async def buy_plan(callback: CallbackQuery):
     )
 
     await callback.message.answer(
-        f"💳 Pay here:\n{payment_link}\n\n"
+        f"💳 <b>Payment Link</b>\n\n{payment_link}\n\n"
         "After payment you will receive invite automatically ✅"
     )
+
+    await callback.answer()
