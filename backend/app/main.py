@@ -20,7 +20,8 @@ templates = Jinja2Templates(directory="backend/app/templates")
 # IMPORT BOT + DP FIRST  ⭐ IMPORTANT
 # ======================================================
 
-from backend.bot.bot import bot, dp, include_admin_routers
+from backend.bot.bot import bot, dp
+
 
 
 # ======================================================
