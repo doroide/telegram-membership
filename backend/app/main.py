@@ -1,24 +1,19 @@
 import os
-import asyncio
 from fastapi import FastAPI, Request
 from aiogram.types import Update
-
-# ======================================================
-# CREATE FASTAPI APP
-# ======================================================
 
 app = FastAPI()
 
 
 # ======================================================
-# IMPORT BOT + DISPATCHER FIRST
+# BOT + DISPATCHER
 # ======================================================
 
 from backend.bot.bot import bot, dp
 
 
 # ======================================================
-# IMPORT ALL AIROGRAM HANDLERS
+# IMPORT HANDLERS
 # ======================================================
 
 from backend.app.bot.handlers.start import router as start_router
@@ -32,7 +27,7 @@ from backend.app.bot.handlers.stats import router as stats_router
 
 
 # ======================================================
-# REGISTER ROUTERS (VERY IMPORTANT)
+# REGISTER ROUTERS
 # ======================================================
 
 dp.include_router(start_router)
@@ -44,12 +39,11 @@ dp.include_router(add_channel_router)
 dp.include_router(add_user_router)
 dp.include_router(stats_router)
 
-
 print("✅ Aiogram routers registered")
 
 
 # ======================================================
-# RAZORPAY WEBHOOK ROUTE
+# RAZORPAY ROUTES
 # ======================================================
 
 from backend.app.api.webhook import router as razorpay_router
@@ -63,8 +57,6 @@ app.include_router(razorpay_router, prefix="/api")
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
-
-    # DEBUG (remove later if you want)
     print("🔥 Telegram update received")
 
     update = Update.model_validate(data)
@@ -77,9 +69,6 @@ async def telegram_webhook(request: Request):
 # STARTUP
 # ======================================================
 
-from backend.app.tasks.expiry_checker import run_expiry_check
-
-
 @app.on_event("startup")
 async def on_startup():
 
@@ -87,26 +76,12 @@ async def on_startup():
 
     webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
 
-    # FORCE webhook install (prevents silent bot issue)
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(webhook_url)
 
     print("✅ Webhook installed:", webhook_url)
 
-    # Expiry background job
-    async def expiry_job():
-        while True:
-            try:
-                await run_expiry_check()
-                print("⏳ Expiry check completed")
-            except Exception as e:
-                print("Expiry checker error:", e)
-
-            await asyncio.sleep(3600)
-
-    asyncio.create_task(expiry_job())
-
-    print("🟢 Expiry Worker Running")
+    print("🟢 Expiry Worker DISABLED (debug)")   # ✅ INSIDE function
 
 
 # ======================================================
