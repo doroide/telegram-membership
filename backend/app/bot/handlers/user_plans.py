@@ -91,10 +91,17 @@ from backend.app.services.payment_service import create_payment_link
 # =====================================================
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_plan(callback: CallbackQuery):
-    parts = callback.data.split("_")
+     parts = callback.data.split("_")
+
+   try:
+    days = int(parts[-1])   # always last part
+    except (IndexError, ValueError):
+    await callback.answer("Invalid plan selected ❌", show_alert=True)
+    return
+   
+
 
     channel_id = int(parts[1])
-    days = int(parts[2])
     price = int(parts[3])
 
     payment_link = await create_payment_link(
