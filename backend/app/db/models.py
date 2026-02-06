@@ -51,7 +51,7 @@ class Channel(Base):
     telegram_chat_id = Column(BigInteger, nullable=False)
 
     # Visible to new users on /start
-    is_public = Column(Boolean, default=False)
+    is_public = Column(Boolean, default=True)
 
     # slab / fixed / custom (future safe)
     pricing_type = Column(String, default="slab")

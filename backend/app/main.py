@@ -26,6 +26,7 @@ from backend.app.bot.handlers.admin_add_user import router as add_user_router
 from backend.app.bot.handlers.stats import router as stats_router
 from backend.app.db.base import Base
 from backend.app.db.session import engine
+from backend.app.bot.handlers.channel_plans import router as channel_plans_router
 
 
 # ======================================================
@@ -40,6 +41,8 @@ dp.include_router(broadcast_router)
 dp.include_router(add_channel_router)
 dp.include_router(add_user_router)
 dp.include_router(stats_router)
+dp.include_router(channel_plans_router)
+
 
 print("✅ Aiogram routers registered")
 
