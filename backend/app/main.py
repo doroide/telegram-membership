@@ -3,43 +3,36 @@ import asyncio
 from fastapi import FastAPI, Request
 from aiogram.types import Update
 
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-
-
 # ======================================================
-# CREATE APP FIRST
+# CREATE FASTAPI APP
 # ======================================================
 
 app = FastAPI()
 
-templates = Jinja2Templates(directory="backend/app/templates")
-
 
 # ======================================================
-# IMPORT BOT + DP FIRST  ⭐ IMPORTANT
+# IMPORT BOT + DISPATCHER FIRST
 # ======================================================
 
 from backend.bot.bot import bot, dp
 
 
-
 # ======================================================
-# NOW IMPORT HANDLERS (after dp exists)
+# IMPORT ALL AIROGRAM HANDLERS
 # ======================================================
 
-from backend.app.bot.handlers.stats import router as stats_router
-from backend.app.bot.handlers.admin_add_user import router as add_user_router
 from backend.app.bot.handlers.start import router as start_router
-from backend.app.bot.handlers.add_channel import router as add_channel_router
-from backend.app.bot.handlers.broadcast import router as broadcast_router
-from backend.app.bot.handlers.renew import router as renew_router
 from backend.app.bot.handlers.user_plans import router as plans_router
+from backend.app.bot.handlers.renew import router as renew_router
 from backend.app.bot.handlers.myplans import router as myplans_router
+from backend.app.bot.handlers.broadcast import router as broadcast_router
+from backend.app.bot.handlers.add_channel import router as add_channel_router
+from backend.app.bot.handlers.admin_add_user import router as add_user_router
+from backend.app.bot.handlers.stats import router as stats_router
 
 
 # ======================================================
-# REGISTER AIROGRAM ROUTERS  ⭐ ONLY HERE
+# REGISTER ROUTERS (VERY IMPORTANT)
 # ======================================================
 
 dp.include_router(start_router)
@@ -52,15 +45,14 @@ dp.include_router(add_user_router)
 dp.include_router(stats_router)
 
 
+print("✅ Aiogram routers registered")
+
+
 # ======================================================
-# FASTAPI ROUTES
+# RAZORPAY WEBHOOK ROUTE
 # ======================================================
 
-from backend.app.api.routes.admin import router as admin_router
 from backend.app.api.webhook import router as razorpay_router
-from backend.app.tasks.expiry_checker import run_expiry_check
-
-
 app.include_router(razorpay_router, prefix="/api")
 
 
@@ -71,9 +63,13 @@ app.include_router(razorpay_router, prefix="/api")
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
-    update = Update.model_validate(data)
 
+    # DEBUG (remove later if you want)
+    print("🔥 Telegram update received")
+
+    update = Update.model_validate(data)
     await dp.feed_update(bot, update)
+
     return {"ok": True}
 
 
@@ -81,30 +77,35 @@ async def telegram_webhook(request: Request):
 # STARTUP
 # ======================================================
 
+from backend.app.tasks.expiry_checker import run_expiry_check
+
+
 @app.on_event("startup")
 async def on_startup():
 
-    print("🚀 Startup: Loading admin routers")
-  
+    print("🚀 App starting...")
 
     webhook_url = os.getenv("TELEGRAM_WEBHOOK_URL")
-    current = await bot.get_webhook_info()
 
-    if current.url != webhook_url:
-        print("🔗 Installing Telegram webhook...")
-        await bot.delete_webhook(drop_pending_updates=True)
-        await bot.set_webhook(webhook_url)
-        print("✅ Webhook installed:", webhook_url)
-    else:
-        print("ℹ️ Webhook already installed")
+    # FORCE webhook install (prevents silent bot issue)
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.set_webhook(webhook_url)
 
+    print("✅ Webhook installed:", webhook_url)
+
+    # Expiry background job
     async def expiry_job():
         while True:
-            await run_expiry_check()
-            print("⏳ Expiry check completed")
+            try:
+                await run_expiry_check()
+                print("⏳ Expiry check completed")
+            except Exception as e:
+                print("Expiry checker error:", e)
+
             await asyncio.sleep(3600)
 
     asyncio.create_task(expiry_job())
+
     print("🟢 Expiry Worker Running")
 
 
