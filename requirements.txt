@@ -8,5 +8,4 @@ razorpay
 httpx
 python-dateutil
 jinja2
-
-
+apscheduler==3.10.4
