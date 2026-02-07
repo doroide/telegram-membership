@@ -1,7 +1,7 @@
 import os
 import hmac
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request, Header, HTTPException
 from sqlalchemy import select
@@ -72,7 +72,8 @@ async def razorpay_webhook(
         print(f"❌ Missing or invalid notes: {e}")
         raise HTTPException(400, f"Invalid notes: {e}")
 
-    now = datetime.utcnow()
+    # ✅ FIX: Use timezone-aware datetime
+    now = datetime.now(timezone.utc)
     expiry = now + timedelta(days=validity_days)
 
     async with async_session() as session:
@@ -117,11 +118,25 @@ async def razorpay_webhook(
 
         membership = result.scalar_one_or_none()
 
-        if membership and membership.expiry_date > now:
-            # Extend existing membership
-            membership.expiry_date += timedelta(days=validity_days)
-            membership.amount_paid += amount
-            print(f"📅 Extended membership until {membership.expiry_date}")
+        # ✅ FIX: Handle both timezone-aware and timezone-naive expiry_date
+        if membership:
+            # Make expiry_date timezone-aware if it isn't already
+            membership_expiry = membership.expiry_date
+            if membership_expiry.tzinfo is None:
+                membership_expiry = membership_expiry.replace(tzinfo=timezone.utc)
+            
+            if membership_expiry > now:
+                # Extend existing membership
+                membership.expiry_date = membership_expiry + timedelta(days=validity_days)
+                membership.amount_paid += amount
+                print(f"📅 Extended membership until {membership.expiry_date}")
+            else:
+                # Update expired membership
+                membership.start_date = now
+                membership.expiry_date = expiry
+                membership.amount_paid = amount
+                membership.is_active = True
+                print(f"🔄 Renewed expired membership until {expiry}")
         else:
             # Create new membership
             membership = Membership(
@@ -155,10 +170,13 @@ async def razorpay_webhook(
     # SEND INVITE LINK
     # =========================================
     try:
+        # Create invite link with expiry (max 10 minutes from now for security)
+        invite_expiry = int((now + timedelta(minutes=10)).timestamp())
+        
         invite = await bot.create_chat_invite_link(
             chat_id=channel.telegram_chat_id,
             member_limit=1,
-            expire_date=int(expiry.timestamp())
+            expire_date=invite_expiry
         )
         
         await bot.send_message(
@@ -168,7 +186,7 @@ async def razorpay_webhook(
                 f"📺 Channel: <b>{channel.name}</b>\n"
                 f"💰 Amount: ₹{amount}\n"
                 f"🗓 Valid till: <b>{expiry.strftime('%d %b %Y')}</b>\n\n"
-                f"👉 Join here:\n{invite.invite_link}"
+                f"👉 Join here (link expires in 10 mins):\n{invite.invite_link}"
             ),
             parse_mode="HTML"
         )
