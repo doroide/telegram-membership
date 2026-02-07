@@ -1,4 +1,4 @@
- from aiogram import Router, F
+from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select
 from backend.app.db.session import async_session
