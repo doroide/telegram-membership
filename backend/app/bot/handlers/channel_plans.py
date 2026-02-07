@@ -1,15 +1,19 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select
+
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Channel
 from backend.app.services.payment_service import create_payment_link
 
+
 router = Router()
+
 
 # =====================================================
 # PLAN SLABS
 # =====================================================
+
 PLAN_SLABS = {
     "A": [
         ("1 Month ₹49", 30, 49),
@@ -34,106 +38,114 @@ PLAN_SLABS = {
     ],
 }
 
+
 # =====================================================
 # CHANNEL CLICK → SHOW PLANS
 # callback: userch_5
 # =====================================================
+
 @router.callback_query(F.data.startswith("userch_"))
 async def show_plans(callback: CallbackQuery):
-    print("CHANNEL CLICK:", callback.data)
-    
-    try:
-        channel_id = int(callback.data.split("_")[1])
-    except (IndexError, ValueError):
+
+    raw = callback.data.strip()
+    print("CHANNEL CLICK:", repr(raw))
+
+    parts = raw.split("_")
+
+    if len(parts) != 2:
         await callback.answer("Invalid channel ❌", show_alert=True)
         return
-    
+
+    _, channel_id = parts
+    channel_id = int(channel_id)
+
     async with async_session() as session:
         user = await session.scalar(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
+
         channel = await session.get(Channel, channel_id)
-    
-    if not channel:
+
+    if not user or not channel:
         await callback.answer("Channel not found ❌", show_alert=True)
         return
-    
+
     slab = user.plan_slab or "A"
     plans = PLAN_SLABS.get(slab, PLAN_SLABS["A"])
-    
+
     buttons = []
+
     for i, (text, days, price) in enumerate(plans):
         buttons.append([
             InlineKeyboardButton(
                 text=text,
-                callback_data=f"buy_{channel_id}_{i}"
+                callback_data=f"buy_{channel_id}_{i}"  # safe index
             )
         ])
-    
+
     await callback.message.edit_text(
         f"💳 <b>{channel.name}</b>\n\nChoose your plan:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        parse_mode="HTML"
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
-    await callback.answer()
+
 
 # =====================================================
 # BUY PLAN
 # callback: buy_5_2
 # =====================================================
+
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_plan(callback: CallbackQuery):
-    print("BUY CALLBACK:", callback.data)
-    
-    try:
-        parts = callback.data.split("_")
-        channel_id = int(parts[1])
-        index = int(parts[2])
-    except (IndexError, ValueError):
-        print("ERROR: Invalid callback format")
+
+    raw = callback.data.strip()
+    print("BUY CLICK:", repr(raw))
+
+    parts = raw.split("_")
+
+    # Safety check
+    if len(parts) != 3:
         await callback.answer("Invalid plan ❌", show_alert=True)
         return
-    
+
+    _, channel_id, index = parts
+
+    try:
+        channel_id = int(channel_id)
+        index = int(index)
+    except ValueError:
+        await callback.answer("Invalid plan ❌", show_alert=True)
+        return
+
     async with async_session() as session:
         user = await session.scalar(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
-        channel = await session.get(Channel, channel_id)
-    
-    if not user or not channel:
-        await callback.answer("Error: User or channel not found ❌", show_alert=True)
+
+    if not user:
+        await callback.answer("User not found ❌", show_alert=True)
         return
-    
+
     slab = user.plan_slab or "A"
-    
-    # Validate index
-    if index >= len(PLAN_SLABS[slab]):
-        print(f"ERROR: Index {index} out of range for slab {slab}")
+    plans = PLAN_SLABS.get(slab, PLAN_SLABS["A"])
+
+    # Prevent index crash
+    if index < 0 or index >= len(plans):
         await callback.answer("Invalid plan ❌", show_alert=True)
         return
-    
-    text, days, price = PLAN_SLABS[slab][index]
-    
-    print(f"Creating payment: user={user.telegram_id}, channel={channel_id}, days={days}, price={price}")
-    
-    try:
-        payment_link = await create_payment_link(
-            user_id=callback.from_user.id,
-            channel_id=channel_id,
-            days=days,
-            price=price
-        )
-    except Exception as e:
-        print(f"ERROR creating payment link: {e}")
-        await callback.answer("Error creating payment link ❌", show_alert=True)
-        return
-    
-    await callback.message.answer(
-        f"💳 <b>{text}</b>\n"
-        f"📢 Channel: <b>{channel.name}</b>\n\n"
-        f"💰 Amount: ₹{price}\n"
-        f"⏰ Duration: {days} days\n\n"
-        f"Click here to pay:\n{payment_link}\n\n"
-        f"✅ After successful payment, you will receive access automatically!"
+
+    text, days, price = plans[index]
+
+    payment_link = await create_payment_link(
+        user_id=callback.from_user.id,
+        channel_id=channel_id,
+        days=days,
+        price=price
     )
+
+    await callback.message.answer(
+        f"💳 <b>{text}</b>\n\n"
+        f"Pay here:\n{payment_link}\n\n"
+        f"After payment you will receive access automatically ✅"
+    )
+
     await callback.answer()
