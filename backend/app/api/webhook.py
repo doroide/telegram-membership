@@ -53,13 +53,13 @@ async def razorpay_webhook(
     
     print(f"📨 Event type: {event}")
 
-    if event != "payment_link.paid":
+    if event != "payment.captured":
         print(f"⏭️ Ignoring event: {event}")
         return {"ignored": True}
 
-    # Get payment link entity
-    payment_link = data["payload"]["payment_link"]["entity"]
-    notes = payment_link.get("notes", {})
+    # Get payment entity
+    payment_entity = data["payload"]["payment"]["entity"]
+    notes = payment_entity.get("notes", {})
     
     print(f"📝 Notes: {notes}")
 
@@ -142,7 +142,7 @@ async def razorpay_webhook(
             user_id=user.id,
             channel_id=channel.id,
             amount=amount,
-            payment_id=payment_link.get("id", "unknown"),
+            payment_id=payment_entity.get("id", "unknown"),
             status="captured"
         )
 
