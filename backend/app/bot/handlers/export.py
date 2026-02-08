@@ -67,23 +67,23 @@ async def export_all_payments(start_date=None, end_date=None):
             "Date",
             "User ID",
             "Username",
+            "Full Name",
             "Channel",
             "Amount (₹)",
-            "Status",
-            "Payment Method"
+            "Status"
         ]
         
         rows = []
         for payment, user, channel in data:
             rows.append([
-                payment.payment_id,
-                payment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                payment.payment_id or "N/A",
+                payment.created_at.strftime("%Y-%m-%d %H:%M:%S") if payment.created_at else "N/A",
                 user.telegram_id,
                 user.username or "N/A",
+                user.full_name or "N/A",
                 channel.name,
-                f"{payment.amount:.2f}",
-                payment.status,
-                payment.payment_method or "N/A"
+                f"{payment.amount:.2f}" if payment.amount else "0.00",
+                payment.status or "N/A"
             ])
         
         return generate_csv(headers, rows), len(rows)
@@ -106,8 +106,8 @@ async def export_users_memberships():
         headers = [
             "User ID",
             "Username",
-            "First Name",
-            "Last Name",
+            "Full Name",
+            "Plan Slab",
             "Registered On",
             "Channel",
             "Plan Start",
@@ -119,12 +119,13 @@ async def export_users_memberships():
         rows = []
         for user, membership, channel in data:
             if membership:
-                status = "Active" if membership.is_active and membership.expiry_date > datetime.utcnow() else "Expired"
+                now = datetime.utcnow()
+                status = "Active" if membership.is_active and membership.expiry_date and membership.expiry_date > now else "Expired"
                 rows.append([
                     user.telegram_id,
                     user.username or "N/A",
-                    user.first_name or "N/A",
-                    user.last_name or "N/A",
+                    user.full_name or "N/A",
+                    user.plan_slab or "N/A",
                     user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else "N/A",
                     channel.name if channel else "N/A",
                     membership.start_date.strftime("%Y-%m-%d") if membership.start_date else "N/A",
@@ -137,8 +138,8 @@ async def export_users_memberships():
                 rows.append([
                     user.telegram_id,
                     user.username or "N/A",
-                    user.first_name or "N/A",
-                    user.last_name or "N/A",
+                    user.full_name or "N/A",
+                    user.plan_slab or "N/A",
                     user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else "N/A",
                     "No Membership",
                     "N/A",
@@ -160,13 +161,14 @@ async def export_channel_performance():
         headers = [
             "Channel ID",
             "Channel Name",
-            "Plan Type",
+            "Pricing Type",
             "Total Revenue (₹)",
             "Total Payments",
             "Active Members",
             "Expired Members",
             "Total Members",
-            "Created On"
+            "Created On",
+            "Status"
         ]
         
         rows = []
@@ -181,7 +183,7 @@ async def export_channel_performance():
             revenue_result = await session.execute(revenue_query)
             payments = revenue_result.scalars().all()
             
-            total_revenue = sum(p.amount for p in payments)
+            total_revenue = sum(p.amount for p in payments if p.amount)
             payment_count = len(payments)
             
             # Get memberships
@@ -191,20 +193,21 @@ async def export_channel_performance():
             membership_result = await session.execute(membership_query)
             memberships = membership_result.scalars().all()
             
-            active_count = sum(1 for m in memberships if m.is_active and m.expiry_date > now)
-            expired_count = sum(1 for m in memberships if not m.is_active or m.expiry_date <= now)
+            active_count = sum(1 for m in memberships if m.is_active and m.expiry_date and m.expiry_date > now)
+            expired_count = sum(1 for m in memberships if not m.is_active or (m.expiry_date and m.expiry_date <= now))
             total_members = len(memberships)
             
             rows.append([
                 channel.telegram_chat_id,
                 channel.name,
-                channel.plan_slab or "N/A",
+                channel.pricing_type or "slab",
                 f"{total_revenue:.2f}",
                 payment_count,
                 active_count,
                 expired_count,
                 total_members,
-                channel.created_at.strftime("%Y-%m-%d") if channel.created_at else "N/A"
+                channel.created_at.strftime("%Y-%m-%d") if channel.created_at else "N/A",
+                "Active" if channel.is_active else "Inactive"
             ])
         
         return generate_csv(headers, rows), len(rows)
@@ -232,8 +235,9 @@ async def export_active_members():
         headers = [
             "User ID",
             "Username",
-            "First Name",
+            "Full Name",
             "Channel",
+            "Plan Slab",
             "Started On",
             "Expires On",
             "Days Remaining",
@@ -242,16 +246,17 @@ async def export_active_members():
         
         rows = []
         for user, membership, channel in data:
-            days_remaining = (membership.expiry_date - now).days
+            days_remaining = (membership.expiry_date - now).days if membership.expiry_date else 0
             rows.append([
                 user.telegram_id,
                 user.username or "N/A",
-                user.first_name or "N/A",
+                user.full_name or "N/A",
                 channel.name,
-                membership.start_date.strftime("%Y-%m-%d"),
-                membership.expiry_date.strftime("%Y-%m-%d"),
+                membership.plan_slab or "N/A",
+                membership.start_date.strftime("%Y-%m-%d") if membership.start_date else "N/A",
+                membership.expiry_date.strftime("%Y-%m-%d") if membership.expiry_date else "N/A",
                 days_remaining,
-                f"{membership.amount_paid:.2f}"
+                f"{membership.amount_paid:.2f}" if membership.amount_paid else "0.00"
             ])
         
         return generate_csv(headers, rows), len(rows)
@@ -281,8 +286,9 @@ async def export_expired_members():
         headers = [
             "User ID",
             "Username",
-            "First Name",
+            "Full Name",
             "Channel",
+            "Plan Slab",
             "Expired On",
             "Days Since Expiry",
             "Last Amount Paid (₹)"
@@ -290,15 +296,16 @@ async def export_expired_members():
         
         rows = []
         for user, membership, channel in data:
-            days_expired = (now - membership.expiry_date).days
+            days_expired = (now - membership.expiry_date).days if membership.expiry_date else 0
             rows.append([
                 user.telegram_id,
                 user.username or "N/A",
-                user.first_name or "N/A",
+                user.full_name or "N/A",
                 channel.name,
-                membership.expiry_date.strftime("%Y-%m-%d"),
+                membership.plan_slab or "N/A",
+                membership.expiry_date.strftime("%Y-%m-%d") if membership.expiry_date else "N/A",
                 days_expired,
-                f"{membership.amount_paid:.2f}"
+                f"{membership.amount_paid:.2f}" if membership.amount_paid else "0.00"
             ])
         
         return generate_csv(headers, rows), len(rows)
