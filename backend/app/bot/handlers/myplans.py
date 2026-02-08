@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
@@ -83,7 +83,8 @@ async def show_user_plans(telegram_id: int, message: Message = None, callback: C
             f"💎 Your Tier: {tier_display}\n\n"
         )
         
-        now = datetime.utcnow()
+        # ✅ FIXED: Use timezone-aware datetime
+        now = datetime.now(timezone.utc)
         active_plans = []
         expired_plans = []
         
