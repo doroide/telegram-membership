@@ -27,6 +27,24 @@ from backend.app.db.session import engine
 # ======================================================
 # REGISTER ROUTERS
 # ======================================================
+
+# In backend/app/main.py or bot/bot.py
+
+from backend.app.bot.handlers import (
+    start,
+    admin_add_user,
+    channel_plans,
+    myplans,
+    # ... other handlers
+)
+
+# Register routers
+dp.include_router(start.router)
+dp.include_router(admin_add_user.router)
+dp.include_router(channel_plans.router)
+dp.include_router(myplans.router)
+
+
 dp.include_router(start_router)
 dp.include_router(renew_router)
 dp.include_router(broadcast_router)
