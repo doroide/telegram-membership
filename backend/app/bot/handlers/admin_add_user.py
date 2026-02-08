@@ -347,7 +347,8 @@ async def receive_custom_amount(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("adminadd_customtier_"), AdminAddUserStates.enter_custom_amount)
 async def custom_tier_selected(callback: CallbackQuery, state: FSMContext):
     """Handle tier selection for custom amount"""
-    tier = int(callback.data.split("_")[1])
+    # FIX: Changed from [1] to [2] because callback format is "adminadd_customtier_1"
+    tier = int(callback.data.split("_")[2])
     
     await state.update_data(tier=tier)
     
