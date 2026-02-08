@@ -15,6 +15,18 @@ ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x]
 
 
 # =====================================================
+# HELPER: Safe message edit wrapper
+# =====================================================
+async def safe_edit_message(message, text, **kwargs):
+    """Safely edit message, handling duplicate edit attempts"""
+    try:
+        await message.edit_text(text, **kwargs)
+    except Exception as e:
+        # Silently ignore duplicate edit errors
+        print(f"⚠️ Message edit failed (likely duplicate): {e}")
+
+
+# =====================================================
 # HELPER FUNCTIONS
 # =====================================================
 
@@ -257,7 +269,7 @@ async def stats_command(message: Message):
 @router.callback_query(F.data == "stats_overview")
 async def stats_overview(callback: CallbackQuery):
     """Comprehensive overview of all stats"""
-    await callback.message.edit_text("⏳ Loading analytics...")
+    await safe_edit_message(callback.message, "⏳ Loading analytics...")
     
     # Gather all stats
     now = datetime.now(timezone.utc)
@@ -309,14 +321,14 @@ async def stats_overview(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Back to Menu", callback_data="stats_menu")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
 @router.callback_query(F.data == "stats_revenue")
 async def stats_revenue(callback: CallbackQuery):
     """Detailed revenue breakdown"""
-    await callback.message.edit_text("⏳ Loading revenue data...")
+    await safe_edit_message(callback.message, "⏳ Loading revenue data...")
     
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -358,14 +370,14 @@ async def stats_revenue(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Back to Menu", callback_data="stats_menu")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
 @router.callback_query(F.data == "stats_members")
 async def stats_members(callback: CallbackQuery):
     """Member statistics"""
-    await callback.message.edit_text("⏳ Loading member data...")
+    await safe_edit_message(callback.message, "⏳ Loading member data...")
     
     membership_stats = await get_membership_stats()
     
@@ -392,14 +404,14 @@ async def stats_members(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Back to Menu", callback_data="stats_menu")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
 @router.callback_query(F.data == "stats_channels")
 async def stats_channels(callback: CallbackQuery):
     """Channel-wise breakdown"""
-    await callback.message.edit_text("⏳ Loading channel data...")
+    await safe_edit_message(callback.message, "⏳ Loading channel data...")
     
     channels = await get_channel_breakdown()
     
@@ -423,14 +435,14 @@ async def stats_channels(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Back to Menu", callback_data="stats_menu")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
 @router.callback_query(F.data == "stats_growth")
 async def stats_growth(callback: CallbackQuery):
     """User growth statistics"""
-    await callback.message.edit_text("⏳ Loading growth data...")
+    await safe_edit_message(callback.message, "⏳ Loading growth data...")
     
     user_stats = await get_user_growth_stats()
     
@@ -452,14 +464,14 @@ async def stats_growth(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Back to Menu", callback_data="stats_menu")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
 @router.callback_query(F.data == "stats_trend")
 async def stats_trend(callback: CallbackQuery):
     """Monthly revenue trend"""
-    await callback.message.edit_text("⏳ Loading trend data...")
+    await safe_edit_message(callback.message, "⏳ Loading trend data...")
     
     trend_data = await get_monthly_revenue_trend(months=6)
     
@@ -482,7 +494,7 @@ async def stats_trend(callback: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Back to Menu", callback_data="stats_menu")]
     ])
     
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await safe_edit_message(callback.message, text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()
 
 
@@ -504,7 +516,8 @@ async def stats_menu(callback: CallbackQuery):
         ]
     ])
     
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback.message,
         "📊 <b>Analytics Dashboard</b>\n\n"
         "Select a report to view:",
         reply_markup=keyboard,
