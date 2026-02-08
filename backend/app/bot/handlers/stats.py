@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from sqlalchemy import select, func, and_, extract
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -60,7 +60,7 @@ async def get_revenue_stats(start_date=None, end_date=None):
 async def get_membership_stats():
     """Get active vs expired membership counts"""
     async with async_session() as session:
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         
         # Active memberships
         active_query = select(func.count(Membership.id)).where(
@@ -112,7 +112,7 @@ async def get_channel_breakdown():
         channels = result.all()
         
         # Active members per channel
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         members_query = (
             select(
                 Channel.name,
@@ -151,13 +151,13 @@ async def get_user_growth_stats():
         total_users = total_result.scalar() or 0
         
         # Users registered today
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         today_query = select(func.count(User.id)).where(User.created_at >= today_start)
         today_result = await session.execute(today_query)
         today_users = today_result.scalar() or 0
         
         # Users registered this month
-        month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         month_query = select(func.count(User.id)).where(User.created_at >= month_start)
         month_result = await session.execute(month_query)
         month_users = month_result.scalar() or 0
@@ -172,7 +172,7 @@ async def get_user_growth_stats():
 async def get_payment_success_rate(days=30):
     """Calculate payment success rate (captured vs total)"""
     async with async_session() as session:
-        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+        start_date = datetime.utcnow() - timedelta(days=days)
         
         # Total payments attempted
         total_query = select(func.count(Payment.id)).where(Payment.created_at >= start_date)
@@ -199,7 +199,7 @@ async def get_payment_success_rate(days=30):
 async def get_monthly_revenue_trend(months=6):
     """Get revenue for last N months"""
     async with async_session() as session:
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         
         monthly_data = []
         
@@ -272,7 +272,7 @@ async def stats_overview(callback: CallbackQuery):
     await safe_edit_message(callback.message, "⏳ Loading analytics...")
     
     # Gather all stats
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
@@ -330,7 +330,7 @@ async def stats_revenue(callback: CallbackQuery):
     """Detailed revenue breakdown"""
     await safe_edit_message(callback.message, "⏳ Loading revenue data...")
     
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = now - timedelta(days=7)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
