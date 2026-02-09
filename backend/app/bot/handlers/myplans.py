@@ -1,8 +1,9 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -70,12 +71,8 @@ async def show_user_plans(telegram_id: int, message: Message = None, callback: C
             if callback:
                 try:
                     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-                except Exception as e:
-                    if "message is not modified" in str(e):
-                        pass  # Message is already showing this
-                    else:
-                        raise e
-                finally:
+                    await callback.answer()
+                except TelegramBadRequest:
                     await callback.answer()
             else:
                 await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -91,12 +88,14 @@ async def show_user_plans(telegram_id: int, message: Message = None, callback: C
             f"💎 Your Tier: {tier_display}\n\n"
         )
         
-        now = datetime.utcnow()
+        # ✅ FIXED: Use timezone-aware datetime
+        now = datetime.now(timezone.utc)
         active_plans = []
         expired_plans = []
         
         # Separate active and expired
         for membership, channel in memberships_data:
+            # ✅ FIXED: Now comparing timezone-aware datetimes
             if membership.is_active and membership.expiry_date > now:
                 active_plans.append((membership, channel))
             else:
@@ -161,13 +160,9 @@ async def show_user_plans(telegram_id: int, message: Message = None, callback: C
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                     parse_mode="HTML"
                 )
-            except Exception as e:
-                # If message content is the same, just answer the callback
-                if "message is not modified" in str(e):
-                    pass  # Will answer at the end
-                else:
-                    raise e
-            finally:
+                await callback.answer()
+            except TelegramBadRequest:
+                # Message is same or query too old, just answer callback
                 await callback.answer()
         else:
             await message.answer(
@@ -198,8 +193,6 @@ async def extend_info_callback(callback: CallbackQuery):
             ]),
             parse_mode="HTML"
         )
-    except Exception as e:
-        if "message is not modified" not in str(e):
-            raise e
-    finally:
+        await callback.answer()
+    except TelegramBadRequest:
         await callback.answer()
