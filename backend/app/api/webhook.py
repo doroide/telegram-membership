@@ -9,6 +9,7 @@ from sqlalchemy import select
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Membership, Channel, Payment
 from backend.bot.bot import bot
+from backend.app.services.tier_engine import update_user_tier, get_user_tier_for_channel
 
 router = APIRouter()
 
@@ -75,6 +76,9 @@ async def razorpay_webhook(
     # ✅ FIX: Use timezone-aware datetime
     now = datetime.now(timezone.utc)
     expiry = now + timedelta(days=validity_days)
+    
+    # ✅ NEW: Determine if lifetime purchase
+    is_lifetime = validity_days == 730
 
     async with async_session() as session:
 
@@ -87,13 +91,21 @@ async def razorpay_webhook(
         user = result.scalar_one_or_none()
 
         if not user:
+            # ✅ NEW: Create user with Tier 3 default (instead of plan_slab)
             user = User(
                 telegram_id=telegram_id,
-                plan_slab="A"
+                current_tier=3,
+                highest_amount_paid=0
             )
             session.add(user)
             await session.flush()
-            print(f"✅ Created user: {telegram_id}")
+            print(f"✅ Created user: {telegram_id} with Tier 3")
+
+        # =========================================
+        # ✅ NEW: UPDATE USER TIER
+        # =========================================
+        update_user_tier(user, int(amount), channel_id, is_lifetime)
+        print(f"🎯 Updated user tier - Current: {user.current_tier}, Channel 1: {user.channel_1_tier}, Lifetime: {user.is_lifetime_member}")
 
         # =========================================
         # GET CHANNEL
@@ -106,6 +118,12 @@ async def razorpay_webhook(
         if not channel:
             print(f"❌ Channel {channel_id} not found")
             raise HTTPException(404, "Channel not found")
+
+        # =========================================
+        # ✅ NEW: GET TIER USED FOR THIS PURCHASE
+        # =========================================
+        tier_used = get_user_tier_for_channel(user, channel_id)
+        print(f"💎 Tier used for this purchase: {tier_used}")
 
         # =========================================
         # MEMBERSHIP (extend or create)
@@ -129,6 +147,7 @@ async def razorpay_webhook(
                 # Extend existing membership
                 membership.expiry_date = membership_expiry + timedelta(days=validity_days)
                 membership.amount_paid += amount
+                membership.tier = tier_used  # ✅ NEW: Update tier
                 print(f"📅 Extended membership until {membership.expiry_date}")
             else:
                 # Update expired membership
@@ -136,15 +155,19 @@ async def razorpay_webhook(
                 membership.expiry_date = expiry
                 membership.amount_paid = amount
                 membership.is_active = True
+                membership.tier = tier_used  # ✅ NEW: Update tier
+                membership.validity_days = validity_days  # ✅ NEW: Update validity
                 print(f"🔄 Renewed expired membership until {expiry}")
         else:
             # Create new membership
             membership = Membership(
                 user_id=user.id,
                 channel_id=channel.id,
+                tier=tier_used,  # ✅ NEW: Add tier
+                validity_days=validity_days,  # ✅ NEW: Add validity
+                amount_paid=amount,
                 start_date=now,
                 expiry_date=expiry,
-                amount_paid=amount,
                 is_active=True
             )
             session.add(membership)
@@ -162,7 +185,10 @@ async def razorpay_webhook(
         )
 
         session.add(payment)
+        
+        # ✅ NEW: Commit and refresh user to get updated tier values
         await session.commit()
+        await session.refresh(user)
         
         print(f"💾 Saved payment: ₹{amount}")
 
@@ -179,13 +205,21 @@ async def razorpay_webhook(
             expire_date=invite_expiry
         )
         
+        # ✅ NEW: Enhanced message with tier info
+        tier_message = ""
+        if user.is_lifetime_member:
+            tier_message = "\n💎 You are now a <b>Lifetime Member</b>!"
+        elif user.current_tier == 4:
+            tier_message = "\n💎 You've unlocked <b>Tier 4 (Elite)</b> pricing!"
+        
         await bot.send_message(
             chat_id=telegram_id,
             text=(
                 f"✅ <b>Payment Successful!</b>\n\n"
                 f"📺 Channel: <b>{channel.name}</b>\n"
                 f"💰 Amount: ₹{amount}\n"
-                f"🗓 Valid till: <b>{expiry.strftime('%d %b %Y')}</b>\n\n"
+                f"🗓 Valid till: <b>{expiry.strftime('%d %b %Y')}</b>"
+                f"{tier_message}\n\n"
                 f"👉 Join here (link expires in 10 mins):\n{invite.invite_link}"
             ),
             parse_mode="HTML"
