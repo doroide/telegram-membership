@@ -1,268 +1,91 @@
 import os
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+import razorpay
 from sqlalchemy import select
+from backend.app.db.models import Channel, Payment
 
-from backend.app.db.session import async_session
-from backend.app.db.models import Channel, User
-from backend.app.services.tier_engine import (
-    get_plans_for_user,
-    format_plan_display
-)
-
-# Import your existing payment service
+# Initialize Razorpay client
 try:
-    from backend.app.services.payment_service import create_payment_link
-except ImportError:
-    # Fallback if import path is different
+    RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+    RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+    razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+except Exception as e:
+    print(f"⚠️ Razorpay initialization failed: {e}")
+    razorpay_client = None  # ✅ Added this line
+
+# =====================================================
+# PAYMENT LINK CREATION
+# =====================================================
+
+async def create_payment_link(user_id: int, channel_id: int, days: int, price: int):
+    """
+    Create a Razorpay payment link for user subscription
     
-	
-router = Router()
-
-
-# =====================================================
-# SHOW PRICING PLANS FOR SELECTED CHANNEL
-# =====================================================
-
-@router.callback_query(F.data.startswith("userch_"))
-async def show_channel_plans(callback: CallbackQuery):
-    """Show pricing plans when user selects a channel"""
-    channel_id = int(callback.data.split("_")[1])
+    Args:
+        user_id: Internal user ID
+        channel_id: Channel ID
+        days: Validity days
+        price: Amount in rupees
     
-    async with async_session() as session:
-        # Get channel
-        channel_result = await session.execute(
-            select(Channel).where(Channel.id == channel_id)
-        )
-        channel = channel_result.scalar_one_or_none()
-        
-        if not channel:
-            await callback.answer("Channel not found", show_alert=True)
-            return
-        
-        # Get user
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = user_result.scalar_one_or_none()
-        
-        if not user:
-            await callback.answer("User not found. Please start with /start", show_alert=True)
-            return
-        
-        # Get plans based on user's tier
-        plans = get_plans_for_user(user, channel_id)
-        
-        if not plans:
-            await callback.answer("No plans available", show_alert=True)
-            return
-        
-        # Determine tier display name
-        if user.is_lifetime_member:
-            tier_display = f"Lifetime Member (₹{user.lifetime_amount})"
-        elif channel_id == 1 and user.channel_1_tier:
-            tier_display = f"Tier {user.channel_1_tier}"
-        else:
-            tier_display = f"Tier {user.current_tier}"
-        
-        # Create buttons for each plan
-        keyboard = []
-        for index, plan in enumerate(plans):
-            button_text = format_plan_display(plan)
-            keyboard.append([
-                InlineKeyboardButton(
-                    text=button_text,
-                    callback_data=f"buy_{channel_id}_{plan['days']}_{plan['price']}"
-                )
-            ])
-        
-        keyboard.append([
-            InlineKeyboardButton(text="🔙 Back to Channels", callback_data="back_to_channels")
-        ])
-        
-        try:
-            await callback.message.edit_text(
-                f"📺 <b>{channel.name}</b>\n\n"
-                f"💎 Your Tier: {tier_display}\n\n"
-                f"Choose your subscription plan:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            if "message is not modified" not in str(e):
-                raise e
-        finally:
-            await callback.answer()
-
-
-# =====================================================
-# HANDLE PLAN PURCHASE
-# =====================================================
-
-@router.callback_query(F.data.startswith("buy_"))
-async def handle_plan_purchase(callback: CallbackQuery):
-    """Create payment link when user selects a plan"""
+    Returns:
+        Payment link URL
+    """
+    if not razorpay_client:
+        raise Exception("Razorpay not configured")
+    
+    # Format description
+    validity_display = {
+        30: "1 Month",
+        90: "3 Months",
+        120: "4 Months",
+        180: "6 Months",
+        365: "1 Year",
+        730: "Lifetime"
+    }.get(days, f"{days} days")
+    
+    # Create payment link
+    payment_data = {
+        "amount": price * 100,  # Convert to paise
+        "currency": "INR",
+        "description": f"Channel Subscription - {validity_display}",
+        "customer": {
+            "notify": 1
+        },
+        "notes": {
+            "user_id": str(user_id),
+            "channel_id": str(channel_id),
+            "validity_days": str(days)
+        },
+        "callback_url": f"{os.getenv('BACKEND_URL', '')}/api/payment/callback",
+        "callback_method": "get"
+    }
+    
     try:
-        parts = callback.data.split("_")
-        channel_id = int(parts[1])
-        validity_days = int(parts[2])
-        amount = int(parts[3])
-        
-        async with async_session() as session:
-            # Get channel
-            channel_result = await session.execute(
-                select(Channel).where(Channel.id == channel_id)
-            )
-            channel = channel_result.scalar_one_or_none()
-            
-            if not channel:
-                await callback.answer("Channel not found", show_alert=True)
-                return
-            
-            # Get user
-            user_result = await session.execute(
-                select(User).where(User.telegram_id == callback.from_user.id)
-            )
-            user = user_result.scalar_one_or_none()
-            
-            if not user:
-                await callback.answer("User not found", show_alert=True)
-                return
-            
-            # Format plan name
-            validity_display = {
-                30: "1 Month",
-                90: "3 Months",
-                120: "4 Months",
-                180: "6 Months",
-                365: "1 Year",
-                730: "Lifetime"
-            }.get(validity_days, f"{validity_days} days")
-            
-            # Create payment link
-            payment_link = await create_payment_link(
-                user_id=user.id,
-                channel_id=channel.id,
-                days=validity_days,
-                price=amount
-            )
-            
-            # Send payment link
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Pay Now", url=payment_link)],
-                [InlineKeyboardButton(text="🔙 Back", callback_data=f"userch_{channel_id}")]
-            ])
-            
-            await callback.message.edit_text(
-                f"💳 <b>Payment Details</b>\n\n"
-                f"📺 Channel: {channel.name}\n"
-                f"📦 Plan: {validity_display}\n"
-                f"💰 Amount: ₹{amount}\n\n"
-                f"Click the button below to complete payment:",
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
-    
+        payment_link = razorpay_client.payment_link.create(payment_data)
+        return payment_link["short_url"]
     except Exception as e:
-        await callback.answer(f"Error: {str(e)}", show_alert=True)
-    
-    await callback.answer()
+        print(f"❌ Razorpay payment link creation failed: {e}")
+        raise Exception("Failed to create payment link")
 
 
 # =====================================================
-# BACK TO CHANNELS
+# CHANNEL SERVICE
 # =====================================================
 
-@router.callback_query(F.data == "back_to_channels")
-async def back_to_channels(callback: CallbackQuery):
-    """Return to channel selection"""
-    telegram_id = callback.from_user.id
+class ChannelService:
+    @staticmethod
+    async def get_active_channels(session):
+        result = await session.execute(
+            select(Channel).where(Channel.is_active == True)
+        )
+        return result.scalars().all()
     
-    async with async_session() as session:
-        # Get user
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == telegram_id)
-        )
-        user = user_result.scalar_one_or_none()
-        
-        if not user:
-            await callback.answer("User not found", show_alert=True)
-            return
-        
-        # Get user's purchased channels
-        from backend.app.db.models import Membership
-        membership_result = await session.execute(
-            select(Membership.channel_id)
-            .where(Membership.user_id == user.id)
-            .distinct()
-        )
-        purchased_channel_ids = [row[0] for row in membership_result.all()]
-        
-        # Get channels to display
-        channel_result = await session.execute(
-            select(Channel)
-            .where(
-                Channel.is_active == True,
-                (Channel.is_public == True) | (Channel.id.in_(purchased_channel_ids))
-            )
-            .order_by(Channel.id)
-        )
-        channels = channel_result.scalars().all()
-        
-        if not channels:
-            await callback.message.edit_text(
-                "❌ No channels available at the moment.\n"
-                "Please check back later!"
-            )
-            return
-        
-        # Build keyboard
-        keyboard = []
-        for channel in channels:
-            # Check if user has active membership
-            has_active = False
-            if channel.id in purchased_channel_ids:
-                membership_check = await session.execute(
-                    select(Membership)
-                    .where(
-                        Membership.user_id == user.id,
-                        Membership.channel_id == channel.id,
-                        Membership.is_active == True
-                    )
-                )
-                has_active = membership_check.scalar_one_or_none() is not None
-            
-            # Add status indicator
-            if has_active:
-                status = "✅"
-            elif channel.id in purchased_channel_ids:
-                status = "⏰"
-            else:
-                status = "📺"
-            
-            keyboard.append([
-                InlineKeyboardButton(
-                    text=f"{status} {channel.name}",
-                    callback_data=f"userch_{channel.id}"
-                )
-            ])
-        
-        keyboard.append([
-            InlineKeyboardButton(text="📋 My Plans", callback_data="my_plans")
-        ])
-        
-        try:
-            await callback.message.edit_text(
-                "📺 <b>Available Channels</b>\n\n"
-                "✅ = Active subscription\n"
-                "⏰ = Expired (renew available)\n"
-                "📺 = New channel\n\n"
-                "Select a channel to view plans:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            if "message is not modified" not in str(e):
-                raise e
-        finally:
-            await callback.answer()
+    @staticmethod
+    async def get_channel(session, channel_id: int):
+        return await session.get(Channel, channel_id)
+    
+    @staticmethod
+    async def disable_channel(session, channel_id: int):
+        channel = await session.get(Channel, channel_id)
+        if channel:
+            channel.is_active = False
+            await session.commit()
