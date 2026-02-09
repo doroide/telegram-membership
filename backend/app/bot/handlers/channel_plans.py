@@ -1,6 +1,7 @@
 import os
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
 
 from backend.app.db.session import async_session
@@ -82,10 +83,9 @@ async def show_channel_plans(callback: CallbackQuery):
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                 parse_mode="HTML"
             )
-        except Exception as e:
-            if "message is not modified" not in str(e):
-                raise e
-        finally:
+            await callback.answer()
+        except TelegramBadRequest:
+            # Message is same, just answer callback
             await callback.answer()
 
 
@@ -133,7 +133,7 @@ async def handle_plan_purchase(callback: CallbackQuery):
                 730: "Lifetime"
             }.get(validity_days, f"{validity_days} days")
             
-            # Create payment link
+            # ✅ FIXED: Correct parameter names
             payment_link = await create_payment_link(
                 user_id=user.id,
                 channel_id=channel.id,
@@ -147,20 +147,23 @@ async def handle_plan_purchase(callback: CallbackQuery):
                 [InlineKeyboardButton(text="🔙 Back", callback_data=f"userch_{channel_id}")]
             ])
             
-            await callback.message.edit_text(
-                f"💳 <b>Payment Details</b>\n\n"
-                f"📺 Channel: {channel.name}\n"
-                f"📦 Plan: {validity_display}\n"
-                f"💰 Amount: ₹{amount}\n\n"
-                f"Click the button below to complete payment:",
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
+            try:
+                await callback.message.edit_text(
+                    f"💳 <b>Payment Details</b>\n\n"
+                    f"📺 Channel: {channel.name}\n"
+                    f"📦 Plan: {validity_display}\n"
+                    f"💰 Amount: ₹{amount}\n\n"
+                    f"Click the button below to complete payment:",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+                await callback.answer()
+            except TelegramBadRequest:
+                # Message is same, just answer callback
+                await callback.answer()
     
     except Exception as e:
         await callback.answer(f"Error: {str(e)}", show_alert=True)
-    
-    await callback.answer()
 
 
 # =====================================================
@@ -204,10 +207,14 @@ async def back_to_channels(callback: CallbackQuery):
         channels = channel_result.scalars().all()
         
         if not channels:
-            await callback.message.edit_text(
-                "❌ No channels available at the moment.\n"
-                "Please check back later!"
-            )
+            try:
+                await callback.message.edit_text(
+                    "❌ No channels available at the moment.\n"
+                    "Please check back later!"
+                )
+                await callback.answer()
+            except TelegramBadRequest:
+                await callback.answer()
             return
         
         # Build keyboard
@@ -255,8 +262,7 @@ async def back_to_channels(callback: CallbackQuery):
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                 parse_mode="HTML"
             )
-        except Exception as e:
-            if "message is not modified" not in str(e):
-                raise e
-        finally:
+            await callback.answer()
+        except TelegramBadRequest:
+            # Message is same, just answer callback
             await callback.answer()
