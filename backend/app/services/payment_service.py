@@ -8,19 +8,47 @@ def initialize_razorpay():
         key_id = os.getenv("RAZORPAY_KEY")
         key_secret = os.getenv("RAZORPAY_SECRET")
         
-        print(f"🔑 RAZORPAY_KEY: {key_id[:10]}..." if key_id else "❌ RAZORPAY_KEY is None")
-        print(f"🔑 RAZORPAY_SECRET: {'***' if key_secret else '❌ None'}")
+        # More detailed logging
+        print("=" * 50)
+        print("🔐 RAZORPAY CREDENTIAL CHECK")
+        print("=" * 50)
+        if key_id:
+            print(f"✅ RAZORPAY_KEY exists: {key_id[:15]}...{key_id[-4:]}")
+            print(f"   Length: {len(key_id)} characters")
+            print(f"   Starts with 'rzp_': {key_id.startswith('rzp_')}")
+            if key_id.startswith("rzp_test_"):
+                print("   Mode: TEST")
+            elif key_id.startswith("rzp_live_"):
+                print("   Mode: LIVE")
+            else:
+                print("   ⚠️ Mode: UNKNOWN (should be test or live)")
+        else:
+            print("❌ RAZORPAY_KEY is missing!")
+        
+        if key_secret:
+            print(f"✅ RAZORPAY_SECRET exists: {key_secret[:10]}...{key_secret[-4:]}")
+            print(f"   Length: {len(key_secret)} characters")
+        else:
+            print("❌ RAZORPAY_SECRET is missing!")
+        print("=" * 50)
         
         if not key_id or not key_secret:
-            print("❌ Razorpay credentials missing in environment variables!")
-            return None
-        
-        if not key_id.startswith("rzp_"):
-            print(f"⚠️ Invalid RAZORPAY_KEY format: {key_id[:10]}... (should start with 'rzp_')")
+            print("❌ Cannot initialize - credentials missing!")
             return None
         
         client = razorpay.Client(auth=(key_id, key_secret))
-        print("✅ Razorpay client initialized successfully")
+        print("✅ Razorpay Client object created")
+        
+        # Test the credentials with a simple API call
+        try:
+            client.payment.all({'count': 1})
+            print("✅ Razorpay credentials verified - API test successful!")
+        except razorpay.errors.SignatureVerificationError:
+            print("❌ Razorpay credentials INVALID - Signature verification failed")
+            return None
+        except Exception as test_error:
+            print(f"⚠️ Razorpay API test: {test_error}")
+        
         return client
         
     except Exception as e:
@@ -103,6 +131,8 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
             raise Exception("Invalid amount. Minimum ₹1 required.")
         elif "customer" in error_msg.lower():
             raise Exception("Customer details error. Please try again.")
+        elif "authentication" in error_msg.lower() or "auth" in error_msg.lower():
+            raise Exception("Invalid Razorpay credentials. Check your API keys in Render settings.")
         else:
             raise Exception(f"Payment error: {error_msg}")
         
@@ -134,3 +164,5 @@ class ChannelService:
         if channel:
             channel.is_active = False
             await session.commit()
+
+
