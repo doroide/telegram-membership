@@ -382,7 +382,7 @@ async def custom_tier_selected(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "adminadd_confirm", AdminAddUserStates.confirm)
 async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
-    """Activate membership immediately"""
+    """Activate membership immediately and send invite to user"""
     data = await state.get_data()
     
     try:
@@ -398,6 +398,17 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 await state.clear()
                 return
             
+            # Get channel
+            channel_result = await session.execute(
+                select(Channel).where(Channel.id == data["channel_id"])
+            )
+            channel = channel_result.scalar_one_or_none()
+            
+            if not channel:
+                await callback.message.edit_text("❌ Channel not found.")
+                await state.clear()
+                return
+            
             # Update user tier
             update_user_tier(
                 user,
@@ -407,7 +418,9 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             )
             
             # Create membership
-            start_date = datetime.utcnow()
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone.utc)
+            start_date = now
             expiry_date = start_date + timedelta(days=data["validity_days"])
             
             membership = Membership(
@@ -424,7 +437,7 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             session.add(membership)
             await session.commit()
             
-            # Success message
+            # Success message to admin
             await callback.message.edit_text(
                 f"✅ <b>User Added Successfully</b>\n\n"
                 f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
@@ -433,7 +446,76 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 f"🎯 Tier: {data['tier']}\n"
                 f"💰 Amount: ₹{data['amount']}\n"
                 f"📅 Expires: {expiry_date.strftime('%Y-%m-%d')}\n\n"
-                f"🔔 User can now access the channel via bot.",
+                f"📤 Sending invite link to user...",
+                parse_mode="HTML"
+            )
+        
+        # =========================================
+        # SEND INVITE LINK TO USER AUTOMATICALLY
+        # =========================================
+        try:
+            # Import bot
+            from backend.bot.bot import bot
+            
+            # Create invite link
+            invite_expiry = int((now + timedelta(minutes=10)).timestamp())
+            
+            invite = await bot.create_chat_invite_link(
+                chat_id=channel.telegram_chat_id,
+                member_limit=1,
+                expire_date=invite_expiry
+            )
+            
+            # Prepare tier message
+            tier_message = ""
+            if user.is_lifetime_member:
+                tier_message = "\n💎 You are now a <b>Lifetime Member</b>!"
+            elif user.current_tier == 4:
+                tier_message = "\n💎 You've unlocked <b>Tier 4 (Elite)</b> pricing!"
+            
+            # Send message to user
+            await bot.send_message(
+                chat_id=data['user_telegram_id'],
+                text=(
+                    f"🎉 <b>Access Granted!</b>\n\n"
+                    f"An admin has given you access to:\n"
+                    f"📺 <b>{channel.name}</b>\n\n"
+                    f"⏰ Valid till: <b>{expiry_date.strftime('%d %b %Y')}</b>\n"
+                    f"🎯 Tier: {data['tier']}"
+                    f"{tier_message}\n\n"
+                    f"👉 Click below to join (link expires in 10 mins):\n{invite.invite_link}"
+                ),
+                parse_mode="HTML"
+            )
+            
+            # Update admin with success
+            await callback.message.edit_text(
+                f"✅ <b>User Added Successfully</b>\n\n"
+                f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
+                f"📺 Channel: {data['channel_name']}\n"
+                f"⏰ Validity: {data['validity_display']}\n"
+                f"🎯 Tier: {data['tier']}\n"
+                f"💰 Amount: ₹{data['amount']}\n"
+                f"📅 Expires: {expiry_date.strftime('%Y-%m-%d')}\n\n"
+                f"✅ Invite link sent to user successfully!",
+                parse_mode="HTML"
+            )
+            
+            print(f"✅ Admin added user {data['user_telegram_id']} - Invite sent")
+            
+        except Exception as e:
+            print(f"❌ Error sending invite to user: {e}")
+            # Update admin that membership created but invite failed
+            await callback.message.edit_text(
+                f"✅ <b>User Added Successfully</b>\n\n"
+                f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
+                f"📺 Channel: {data['channel_name']}\n"
+                f"⏰ Validity: {data['validity_display']}\n"
+                f"🎯 Tier: {data['tier']}\n"
+                f"💰 Amount: ₹{data['amount']}\n"
+                f"📅 Expires: {expiry_date.strftime('%Y-%m-%d')}\n\n"
+                f"⚠️ Membership created but failed to send invite.\n"
+                f"User needs to type /start to get access link.",
                 parse_mode="HTML"
             )
         
