@@ -64,11 +64,33 @@ async def razorpay_webhook(
     
     print(f"📝 Notes: {notes}")
 
+    # ✅ FIXED: Parse notes and support both old (user_id) and new (telegram_id) format
+    telegram_id = None
+    user_id_from_notes = None
+    
     try:
-        telegram_id = int(notes["telegram_id"])
+        # Try to get telegram_id directly (new format)
+        if "telegram_id" in notes:
+            telegram_id = int(notes["telegram_id"])
+            print(f"✅ Found telegram_id in notes: {telegram_id}")
+        elif "user_id" in notes:
+            # Old format - we'll look up telegram_id from database
+            user_id_from_notes = int(notes["user_id"])
+            print(f"🔄 Old payment link detected with user_id: {user_id_from_notes}")
+        else:
+            print(f"❌ Neither telegram_id nor user_id found in notes")
+            raise HTTPException(400, "Neither telegram_id nor user_id found in notes")
+        
         channel_id = int(notes["channel_id"])
         validity_days = int(notes["validity_days"])
-        amount = float(notes["amount"])
+        
+        # Amount might be in notes (new) or payment entity (old)
+        if "amount" in notes:
+            amount = float(notes["amount"])
+        else:
+            amount = float(payment_entity.get("amount", 0)) / 100  # Convert paise to rupees
+            print(f"⚠️ Amount not in notes, using payment amount: ₹{amount}")
+        
     except (KeyError, ValueError) as e:
         print(f"❌ Missing or invalid notes: {e}")
         raise HTTPException(400, f"Invalid notes: {e}")
@@ -83,6 +105,22 @@ async def razorpay_webhook(
     async with async_session() as session:
 
         # =========================================
+        # ✅ FIXED: Convert user_id to telegram_id if needed
+        # =========================================
+        if telegram_id is None and user_id_from_notes is not None:
+            user_lookup = await session.execute(
+                select(User).where(User.id == user_id_from_notes)
+            )
+            temp_user = user_lookup.scalar_one_or_none()
+            
+            if not temp_user:
+                print(f"❌ User ID {user_id_from_notes} not found in database")
+                raise HTTPException(400, f"User ID {user_id_from_notes} not found")
+            
+            telegram_id = temp_user.telegram_id
+            print(f"✅ Converted user_id {user_id_from_notes} to telegram_id {telegram_id}")
+
+        # =========================================
         # GET OR CREATE USER
         # =========================================
         result = await session.execute(
@@ -91,7 +129,7 @@ async def razorpay_webhook(
         user = result.scalar_one_or_none()
 
         if not user:
-            # ✅ NEW: Create user with Tier 3 default (instead of plan_slab)
+            # ✅ NEW: Create user with Tier 3 default
             user = User(
                 telegram_id=telegram_id,
                 current_tier=3,
@@ -147,7 +185,7 @@ async def razorpay_webhook(
                 # Extend existing membership
                 membership.expiry_date = membership_expiry + timedelta(days=validity_days)
                 membership.amount_paid += amount
-                membership.tier = tier_used  # ✅ NEW: Update tier
+                membership.tier = tier_used
                 print(f"📅 Extended membership until {membership.expiry_date}")
             else:
                 # Update expired membership
@@ -155,16 +193,16 @@ async def razorpay_webhook(
                 membership.expiry_date = expiry
                 membership.amount_paid = amount
                 membership.is_active = True
-                membership.tier = tier_used  # ✅ NEW: Update tier
-                membership.validity_days = validity_days  # ✅ NEW: Update validity
+                membership.tier = tier_used
+                membership.validity_days = validity_days
                 print(f"🔄 Renewed expired membership until {expiry}")
         else:
             # Create new membership
             membership = Membership(
                 user_id=user.id,
                 channel_id=channel.id,
-                tier=tier_used,  # ✅ NEW: Add tier
-                validity_days=validity_days,  # ✅ NEW: Add validity
+                tier=tier_used,
+                validity_days=validity_days,
                 amount_paid=amount,
                 start_date=now,
                 expiry_date=expiry,
