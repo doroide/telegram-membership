@@ -96,36 +96,56 @@ async def show_channel_plans(callback: CallbackQuery):
 # =====================================================
 # HANDLE PLAN PURCHASE
 # =====================================================
-
 @router.callback_query(F.data.startswith("buy_"))
 async def handle_plan_purchase(callback: CallbackQuery):
     """Create payment link when user selects a plan"""
+    print("=" * 60)
+    print("🎯 PAYMENT HANDLER TRIGGERED")
+    print(f"   Callback data: {callback.data}")
+    print(f"   User: {callback.from_user.id}")
+    print("=" * 60)
+    
     try:
         parts = callback.data.split("_")
+        print(f"📦 Parsed parts: {parts}")
+        
         channel_id = int(parts[1])
         validity_days = int(parts[2])
         amount = int(parts[3])
         
+        print(f"✅ Parsed values:")
+        print(f"   Channel ID: {channel_id}")
+        print(f"   Validity days: {validity_days}")
+        print(f"   Amount: {amount}")
+        
         async with async_session() as session:
             # Get channel
+            print(f"🔍 Looking up channel {channel_id}...")
             channel_result = await session.execute(
                 select(Channel).where(Channel.id == channel_id)
             )
             channel = channel_result.scalar_one_or_none()
             
             if not channel:
+                print(f"❌ Channel {channel_id} not found!")
                 await callback.answer("Channel not found", show_alert=True)
                 return
             
+            print(f"✅ Found channel: {channel.name}")
+            
             # Get user
+            print(f"🔍 Looking up user {callback.from_user.id}...")
             user_result = await session.execute(
                 select(User).where(User.telegram_id == callback.from_user.id)
             )
             user = user_result.scalar_one_or_none()
             
             if not user:
+                print(f"❌ User {callback.from_user.id} not found!")
                 await callback.answer("User not found", show_alert=True)
                 return
+            
+            print(f"✅ Found user: ID={user.id}, Telegram ID={user.telegram_id}")
             
             # Format plan name
             validity_display = {
@@ -137,6 +157,13 @@ async def handle_plan_purchase(callback: CallbackQuery):
                 730: "Lifetime"
             }.get(validity_days, f"{validity_days} days")
             
+            print(f"💰 Creating payment link with:")
+            print(f"   user_id: {user.id}")
+            print(f"   telegram_id: {user.telegram_id}")
+            print(f"   channel_id: {channel.id}")
+            print(f"   days: {validity_days}")
+            print(f"   price: {amount}")
+            
             # Create payment link
             payment_link = await create_payment_link(
                 user_id=user.id,
@@ -144,7 +171,9 @@ async def handle_plan_purchase(callback: CallbackQuery):
                 channel_id=channel.id,
                 days=validity_days,
                 price=amount
-            )	
+            )
+            
+            print(f"✅ Payment link created: {payment_link}")
             
             # Send payment link
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -162,12 +191,21 @@ async def handle_plan_purchase(callback: CallbackQuery):
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
+                print("✅ Message sent to user")
                 await callback.answer()
-            except TelegramBadRequest:
-                # Message is same or query too old
+            except TelegramBadRequest as e:
+                print(f"⚠️ TelegramBadRequest: {e}")
                 await callback.answer()
     
     except Exception as e:
+        print("=" * 60)
+        print(f"❌ CRITICAL ERROR in handle_plan_purchase:")
+        print(f"   Error: {e}")
+        print(f"   Type: {type(e).__name__}")
+        import traceback
+        print(f"   Traceback:")
+        traceback.print_exc()
+        print("=" * 60)
         await callback.answer(f"Error: {str(e)}", show_alert=True)
 
 
