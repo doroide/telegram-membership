@@ -140,10 +140,11 @@ async def handle_plan_purchase(callback: CallbackQuery):
             # Create payment link
             payment_link = await create_payment_link(
                 user_id=user.id,
+                telegram_id=user.telegram_id,
                 channel_id=channel.id,
                 days=validity_days,
                 price=amount
-            )
+            )	
             
             # Send payment link
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
