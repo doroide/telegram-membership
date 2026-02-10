@@ -8,7 +8,6 @@ def initialize_razorpay():
         key_id = os.getenv("RAZORPAY_KEY")
         key_secret = os.getenv("RAZORPAY_SECRET")
         
-        # More detailed logging
         print("=" * 50)
         print("🔐 RAZORPAY CREDENTIAL CHECK")
         print("=" * 50)
@@ -39,7 +38,6 @@ def initialize_razorpay():
         client = razorpay.Client(auth=(key_id, key_secret))
         print("✅ Razorpay Client object created")
         
-        # Test the credentials with a simple API call
         try:
             client.payment.all({'count': 1})
             print("✅ Razorpay credentials verified - API test successful!")
@@ -94,8 +92,7 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
         "description": f"Channel Subscription - {validity_display}",
         "customer": {
             "name": f"User {user_id}",
-            "email": f"user{user_id}@telegram.bot",
-            "contact": "+919999999999"
+            "email": f"user{user_id}@telegram.bot"
         },
         "notify": {
             "sms": False,
@@ -164,5 +161,3 @@ class ChannelService:
         if channel:
             channel.is_active = False
             await session.commit()
-
-
