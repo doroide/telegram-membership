@@ -55,7 +55,11 @@ def initialize_razorpay():
 
 razorpay_client = initialize_razorpay()
 
-async def create_payment_link(user_id: int, channel_id: int, days: int, price: int):
+async def create_payment_link(user_id: int, telegram_id: int, channel_id: int, days: int, price: int):
+
+    print("🔥 PAYMENT_SERVICE VERSION: 2.0 - UPDATED SIGNATURE") 
+    print(f"🔥 Function called with: user_id={user_id}, telegram_id={telegram_id}, channel_id={channel_id}")
+
     if not razorpay_client:
         print("❌ Razorpay client not initialized - check environment variables")
         raise Exception("Razorpay not configured. Please contact admin.")
@@ -76,12 +80,13 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
     }.get(days, f"{days} days")
     
     backend_url = os.getenv('BACKEND_URL', '').rstrip('/')
-    callback_url = f"{backend_url}/api/payment/callback" if backend_url else None
+    callback_url = f"{backend_url}/api/webhook" if backend_url else None
     
     print(f"💳 Creating payment link:")
     print(f"   Amount: ₹{price} ({price * 100} paise)")
     print(f"   Days: {days}")
     print(f"   User ID: {user_id}")
+    print(f"   Telegram ID: {telegram_id}")
     print(f"   Channel ID: {channel_id}")
     print(f"   Callback URL: {callback_url}")
     
@@ -100,10 +105,10 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
         },
         "reminder_enable": False,
         "notes": {
-            "user_id": str(user_id),
+            "telegram_id": str(telegram_id),
             "channel_id": str(channel_id),
             "validity_days": str(days),
-            "platform": "telegram_bot"
+            "amount": str(price)
         }
     }
     
