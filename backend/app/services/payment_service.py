@@ -3,12 +3,7 @@ import razorpay
 from sqlalchemy import select
 from backend.app.db.models import Channel, Payment
 
-# =====================================================
-# RAZORPAY CLIENT INITIALIZATION
-# =====================================================
-
 def initialize_razorpay():
-    """Initialize Razorpay client with proper error handling"""
     try:
         key_id = os.getenv("RAZORPAY_KEY")
         key_secret = os.getenv("RAZORPAY_SECRET")
@@ -32,40 +27,19 @@ def initialize_razorpay():
         print(f"⚠️ Razorpay initialization failed: {e}")
         return None
 
-
-# Initialize client
 razorpay_client = initialize_razorpay()
 
-
-# =====================================================
-# PAYMENT LINK CREATION
-# =====================================================
-
 async def create_payment_link(user_id: int, channel_id: int, days: int, price: int):
-    """
-    Create a Razorpay payment link for user subscription
-    
-    Args:
-        user_id: Internal user ID
-        channel_id: Channel ID
-        days: Validity days
-        price: Amount in rupees
-    
-    Returns:
-        Payment link URL
-    """
     if not razorpay_client:
         print("❌ Razorpay client not initialized - check environment variables")
         raise Exception("Razorpay not configured. Please contact admin.")
     
-    # Validate inputs
     if price <= 0:
         raise Exception("Invalid amount")
     
     if days <= 0:
         raise Exception("Invalid validity period")
     
-    # Format description
     validity_display = {
         30: "1 Month",
         90: "3 Months",
@@ -75,7 +49,6 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
         730: "Lifetime"
     }.get(days, f"{days} days")
     
-    # Get callback URL
     backend_url = os.getenv('BACKEND_URL', '').rstrip('/')
     callback_url = f"{backend_url}/api/payment/callback" if backend_url else None
     
@@ -86,16 +59,15 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
     print(f"   Channel ID: {channel_id}")
     print(f"   Callback URL: {callback_url}")
     
-    # ✅ FIXED: Proper Razorpay payment link format
     payment_data = {
-        "amount": price * 100,  # Amount in paise
+        "amount": price * 100,
         "currency": "INR",
         "accept_partial": False,
         "description": f"Channel Subscription - {validity_display}",
         "customer": {
             "name": f"User {user_id}",
             "email": f"user{user_id}@telegram.bot",
-            "contact": "+919999999999"  # Dummy number
+            "contact": "+919999999999"
         },
         "notify": {
             "sms": False,
@@ -110,7 +82,6 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
         }
     }
     
-    # Only add callback if URL exists
     if callback_url:
         payment_data["callback_url"] = callback_url
         payment_data["callback_method"] = "get"
@@ -128,7 +99,6 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
         print(f"❌ Razorpay BadRequest Error:")
         print(f"   {error_msg}")
         
-        # Parse error for better user message
         if "amount" in error_msg.lower():
             raise Exception("Invalid amount. Minimum ₹1 required.")
         elif "customer" in error_msg.lower():
@@ -145,11 +115,6 @@ async def create_payment_link(user_id: int, channel_id: int, days: int, price: i
         print(f"   Error: {e}")
         print(f"   Type: {type(e).__name__}")
         raise Exception(f"Failed to create payment link: {str(e)}")
-
-
-# =====================================================
-# CHANNEL SERVICE
-# =====================================================
 
 class ChannelService:
     @staticmethod
@@ -169,38 +134,3 @@ class ChannelService:
         if channel:
             channel.is_active = False
             await session.commit()
-```
-
----
-
-## 🎯 **Key Changes:**
-
-1. ✅ Added `accept_partial: False`
-2. ✅ Added proper `customer` object with name/email/contact
-3. ✅ Added `notify` and `reminder_enable` fields
-4. ✅ Better error logging to see exact Razorpay error
-5. ✅ Validates amount and days before sending to Razorpay
-
----
-
-## 📋 **After Deploy, Check Logs For:**
-
-You should see detailed logs like:
-```
-💳 Creating payment link:
-   Amount: ₹199 (19900 paise)
-   Days: 30
-   User ID: 1
-   Channel ID: 1
-   Callback URL: https://your-app.onrender.com/api/payment/callback
-📤 Sending request to Razorpay...
-✅ Payment link created successfully!
-```
-
----
-
-## 🚨 **If Still Fails:**
-
-**Send me the EXACT error from Render logs** that appears after this line:
-```
-❌ Razorpay BadRequest Error:
