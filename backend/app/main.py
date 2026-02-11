@@ -21,26 +21,30 @@ from backend.app.bot.handlers.stats import router as stats_router
 from backend.app.bot.handlers.export import router as export_router
 from backend.app.bot.handlers.channel_plans import router as channel_plans_router
 from backend.app.bot.handlers.myplans import router as myplans_router
+from backend.app.bot.handlers.admin_panel import router as admin_panel_router
+from backend.app.bot.handlers.analytics import router as analytics_router
+from backend.app.bot.handlers.autorenew import router as autorenew_router  # ✅ NEW
 
 from backend.app.db.base import Base
 from backend.app.db.session import engine
 
-from backend.app.bot.handlers.admin_panel import router as admin_panel_router
-
-
 # ======================================================
 # REGISTER ROUTERS
 # ======================================================
+dp.include_router(autorenew_router)
 dp.include_router(start_router)
 dp.include_router(add_user_router)
 dp.include_router(channel_plans_router)
 dp.include_router(myplans_router)
+  # ✅ NEW - Register autorenew router
 dp.include_router(renew_router)
 dp.include_router(broadcast_router)
 dp.include_router(add_channel_router)
 dp.include_router(stats_router)
+dp.include_router(analytics_router)
 dp.include_router(export_router)
 dp.include_router(admin_panel_router)
+
 print("✅ Aiogram routers registered")
 
 # ======================================================

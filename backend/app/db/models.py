@@ -86,6 +86,17 @@ class Membership(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
+    # Reminder tracking (MOVED FROM CHANNEL TO HERE)
+    reminded_7d = Column(Boolean, default=False)
+    reminded_1d = Column(Boolean, default=False)
+    reminded_expired = Column(Boolean, default=False)
+    
+    # AutoPay fields
+    auto_renew_enabled = Column(Boolean, default=False)
+    razorpay_subscription_id = Column(String(255), nullable=True)
+    subscription_status = Column(String(50), nullable=True)  # active, paused, cancelled, halted
+    auto_renew_method = Column(String(50), nullable=True)  # upi_gpay, upi_phonepe
+    
     user = relationship("User", back_populates="memberships")
     channel = relationship("Channel", back_populates="memberships")
 
