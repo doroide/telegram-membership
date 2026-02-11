@@ -108,11 +108,17 @@ async def show_user_plans(telegram_id: int, message: Message = None, callback: C
                 days_left = (membership.expiry_date - now).days
                 visibility = "🔓" if channel.is_public else "🔒"
                 
+                # ✅ NEW: Show auto-renewal status
+                autorenew_status = ""
+                if membership.auto_renew_enabled and membership.subscription_status == "active":
+                    autorenew_status = "\n   🔄 <b>Auto-Renewal: ON</b>"
+                
                 response += (
                     f"{visibility} <b>{channel.name}</b>\n"
                     f"   • Expires: {membership.expiry_date.strftime('%d %b %Y')}\n"
                     f"   • Days left: {days_left}\n"
-                    f"   • Amount: ₹{membership.amount_paid}\n\n"
+                    f"   • Amount: ₹{membership.amount_paid}"
+                    f"{autorenew_status}\n\n"
                 )
         
         # Show expired plans
@@ -129,6 +135,16 @@ async def show_user_plans(telegram_id: int, message: Message = None, callback: C
         
         # Build keyboard with renew options
         keyboard = []
+        
+        # ✅ NEW: Add manage auto-renewal buttons for active plans with auto-renewal
+        for membership, channel in active_plans:
+            if membership.auto_renew_enabled and membership.subscription_status == "active":
+                keyboard.append([
+                    InlineKeyboardButton(
+                        text=f"⚙️ Manage Auto-Renewal - {channel.name}",
+                        callback_data=f"autorenew_manage_{membership.id}"
+                    )
+                ])
         
         # Add renew buttons for expired plans
         if expired_plans:
