@@ -47,42 +47,51 @@ def get_plan_id(validity_days: int, tier: int) -> str:
 async def offer_autorenew(user_telegram_id: int, membership_id: int):
     """Offer auto-renewal option after successful payment"""
     
-    async with async_session() as session:
-        membership = await session.get(Membership, membership_id)
-        
-        if not membership:
-            return
-        
-        # Don't offer for lifetime plans
-        if membership.validity_days == 730:
-            return
-        
-        # Don't offer if already enabled
-        if membership.auto_renew_enabled:
-            return
-        
-        channel = await session.get(Channel, membership.channel_id)
-        
-        validity_display = {
-            30: "Monthly",
-            90: "Quarterly",
-            120: "4 Months",
-            180: "Half-Yearly",
-            365: "Yearly"
-        }.get(membership.validity_days, f"{membership.validity_days} days")
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="🔄 Enable Auto-Renewal",
-                callback_data=f"autorenew_enable_{membership_id}"
-            )],
-            [InlineKeyboardButton(
-                text="❌ No Thanks",
-                callback_data="autorenew_skip"
-            )]
-        ])
-        
-        try:
+    print(f"🔄 offer_autorenew called: user={user_telegram_id}, membership_id={membership_id}")
+    
+    try:
+        async with async_session() as session:
+            membership = await session.get(Membership, membership_id)
+            
+            if not membership:
+                print(f"❌ Membership {membership_id} not found")
+                return
+            
+            # Don't offer for lifetime plans
+            if membership.validity_days == 730:
+                print(f"⏭️ Skipping auto-renewal offer for lifetime plan")
+                return
+            
+            # Don't offer if already enabled (safe check with getattr)
+            if getattr(membership, 'auto_renew_enabled', False):
+                print(f"⏭️ Auto-renewal already enabled for membership {membership_id}")
+                return
+            
+            channel = await session.get(Channel, membership.channel_id)
+            
+            if not channel:
+                print(f"❌ Channel not found for membership {membership_id}")
+                return
+            
+            validity_display = {
+                30: "Monthly",
+                90: "Quarterly",
+                120: "4 Months",
+                180: "Half-Yearly",
+                365: "Yearly"
+            }.get(membership.validity_days, f"{membership.validity_days} days")
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="🔄 Enable Auto-Renewal",
+                    callback_data=f"autorenew_enable_{membership_id}"
+                )],
+                [InlineKeyboardButton(
+                    text="❌ No Thanks",
+                    callback_data="autorenew_skip"
+                )]
+            ])
+            
             await bot.send_message(
                 chat_id=user_telegram_id,
                 text=(
@@ -100,8 +109,13 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int):
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-        except Exception as e:
-            print(f"⚠️ Could not send auto-renewal offer: {e}")
+            
+            print(f"✅ Auto-renewal offer sent to user {user_telegram_id}")
+            
+    except Exception as e:
+        print(f"⚠️ Error in offer_autorenew: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # =====================================================
@@ -153,8 +167,9 @@ async def enable_autorenew(callback: CallbackQuery):
             })
             
             # Store subscription ID temporarily (will update status via webhook)
-            membership.razorpay_subscription_id = subscription["id"]
-            membership.subscription_status = "pending"
+            # Use setattr for safety
+            setattr(membership, 'razorpay_subscription_id', subscription["id"])
+            setattr(membership, 'subscription_status', "pending")
             await session.commit()
             
             # Send authorization link
@@ -215,13 +230,16 @@ async def manage_autorenew(callback: CallbackQuery):
             await callback.answer("Membership not found", show_alert=True)
             return
         
+        # Safe attribute access
+        subscription_status = getattr(membership, 'subscription_status', 'unknown')
+        
         status_text = {
             "active": "✅ Active",
             "paused": "⏸ Paused",
             "cancelled": "❌ Cancelled",
             "halted": "⚠️ Payment Failed",
             "pending": "⏳ Pending Setup"
-        }.get(membership.subscription_status, "Unknown")
+        }.get(subscription_status, "Unknown")
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
@@ -262,17 +280,20 @@ async def cancel_autorenew(callback: CallbackQuery):
     async with async_session() as session:
         membership = await session.get(Membership, membership_id)
         
-        if not membership or not membership.razorpay_subscription_id:
+        # Safe attribute access
+        subscription_id = getattr(membership, 'razorpay_subscription_id', None)
+        
+        if not membership or not subscription_id:
             await callback.answer("No active auto-renewal found", show_alert=True)
             return
         
         try:
             # Cancel in Razorpay
-            razorpay_client.subscription.cancel(membership.razorpay_subscription_id)
+            razorpay_client.subscription.cancel(subscription_id)
             
-            # Update database
-            membership.auto_renew_enabled = False
-            membership.subscription_status = "cancelled"
+            # Update database using setattr for safety
+            setattr(membership, 'auto_renew_enabled', False)
+            setattr(membership, 'subscription_status', "cancelled")
             await session.commit()
             
             await callback.message.edit_text(
@@ -283,7 +304,7 @@ async def cancel_autorenew(callback: CallbackQuery):
                 parse_mode="HTML"
             )
             
-            print(f"✅ Cancelled subscription: {membership.razorpay_subscription_id}")
+            print(f"✅ Cancelled subscription: {subscription_id}")
             
         except Exception as e:
             print(f"❌ Error cancelling subscription: {e}")
