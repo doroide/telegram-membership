@@ -44,10 +44,10 @@ def get_plan_id(validity_days: int, tier: int) -> str:
 # OFFER AUTORENEW AFTER PAYMENT
 # =====================================================
 
-async def offer_autorenew(user_telegram_id: int, membership_id: int):
+async def offer_autorenew(user_telegram_id: int, membership_id: int, amount_paid: float):
     """Offer auto-renewal option after successful payment"""
     
-    print(f"🔄 offer_autorenew called: user={user_telegram_id}, membership_id={membership_id}")
+    print(f"🔄 offer_autorenew called: user={user_telegram_id}, membership_id={membership_id}, amount={amount_paid}")
     
     try:
         async with async_session() as session:
@@ -81,30 +81,26 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int):
                 365: "Yearly"
             }.get(membership.validity_days, f"{membership.validity_days} days")
             
+            # ✅ ONLY "Enable" button, no "No Thanks"
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text="🔄 Enable Auto-Renewal",
                     callback_data=f"autorenew_enable_{membership_id}"
-                )],
-                [InlineKeyboardButton(
-                    text="❌ No Thanks",
-                    callback_data="autorenew_skip"
                 )]
             ])
             
+            # ✅ Removed auto-charge message at the end
             await bot.send_message(
                 chat_id=user_telegram_id,
                 text=(
                     f"🔄 <b>Enable Auto-Renewal?</b>\n\n"
                     f"📺 Channel: <b>{channel.name}</b>\n"
-                    f"💰 Amount: ₹{membership.amount_paid} {validity_display}\n\n"
+                    f"💰 Amount: ₹{int(amount_paid)} {validity_display}\n\n"
                     f"<b>Benefits:</b>\n"
                     f"✅ Pay via GPay or PhonePe\n"
                     f"✅ Automatic renewal before expiry\n"
                     f"✅ Never lose access\n"
-                    f"✅ Cancel anytime in your UPI app\n\n"
-                    f"<i>You'll be charged ₹{membership.amount_paid} automatically {validity_display.lower()}. "
-                    f"Manage AutoPay in your GPay/PhonePe settings.</i>"
+                    f"✅ Cancel anytime in your UPI app"
                 ),
                 reply_markup=keyboard,
                 parse_mode="HTML"
@@ -199,14 +195,14 @@ async def enable_autorenew(callback: CallbackQuery):
 
 
 # =====================================================
-# SKIP AUTORENEW
+# SKIP AUTORENEW (Still handle callback in case old messages exist)
 # =====================================================
 
 @router.callback_query(F.data == "autorenew_skip")
 async def skip_autorenew(callback: CallbackQuery):
     """User declined auto-renewal"""
     await callback.message.edit_text(
-        "👍 No problem! You can enable auto-renewal later from /myplans",
+        "👍 You can enable auto-renewal anytime from /myplans",
         parse_mode="HTML"
     )
     await callback.answer()
