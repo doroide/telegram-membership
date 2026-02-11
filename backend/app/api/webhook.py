@@ -525,8 +525,8 @@ async def razorpay_webhook(
             import asyncio
             from backend.app.bot.handlers.autorenew import offer_autorenew
             
-            # Run in background, don't wait
-            asyncio.create_task(offer_autorenew(telegram_id, membership.id))
+            # Run in background, don't wait - pass the actual payment amount
+            asyncio.create_task(offer_autorenew(telegram_id, membership.id, amount))
 
         return {"ok": True}
     
