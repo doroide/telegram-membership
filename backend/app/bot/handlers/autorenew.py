@@ -17,6 +17,8 @@ router = Router()
 
 def get_plan_id(validity_days: int, tier: int) -> str:
     """Get Razorpay plan ID based on validity and tier"""
+    print(f"🔎 get_plan_id called: validity_days={validity_days}, tier={tier}")
+    
     # Map validity days to duration code
     duration_map = {
         30: "1M",
@@ -28,11 +30,15 @@ def get_plan_id(validity_days: int, tier: int) -> str:
     
     duration = duration_map.get(validity_days)
     if not duration:
+        print(f"❌ Invalid validity_days: {validity_days}")
         return None
     
     # Environment variable name: RAZORPAY_PLAN_1M_T1, etc.
     env_var = f"RAZORPAY_PLAN_{duration}_T{tier}"
     plan_id = os.getenv(env_var)
+    
+    print(f"🔍 Looking for env var: {env_var}")
+    print(f"📋 Found plan_id: {plan_id if plan_id else 'NOT FOUND'}")
     
     if not plan_id:
         print(f"⚠️ Plan ID not found for {env_var}")
@@ -122,8 +128,11 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int, amount_paid
 async def enable_autorenew(callback: CallbackQuery):
     """Create Razorpay subscription for auto-renewal"""
     
+    print(f"🎯 enable_autorenew handler called! callback_data: {callback.data}")
+    
     try:
         membership_id = int(callback.data.split("_")[2])
+        print(f"📝 Membership ID: {membership_id}")
         
         async with async_session() as session:
             membership = await session.get(Membership, membership_id)
@@ -137,7 +146,11 @@ async def enable_autorenew(callback: CallbackQuery):
             # Get plan ID for this tier and validity
             plan_id = get_plan_id(membership.validity_days, membership.tier)
             
+            print(f"🔍 Looking for plan: validity_days={membership.validity_days}, tier={membership.tier}")
+            print(f"📋 Plan ID result: {plan_id}")
+            
             if not plan_id:
+                print(f"❌ Plan ID not found - showing alert to user")
                 await callback.answer(
                     "Auto-renewal not available for this plan. Please contact admin.",
                     show_alert=True
