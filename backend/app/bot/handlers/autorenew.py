@@ -166,7 +166,6 @@ async def enable_autorenew(callback: CallbackQuery):
                 "customer_notify": 1,
                 "total_count": total_count,
                 "quantity": 1,
-                "payment_method": "emandate",  # ✅ UPI AutoPay only!
                 "notes": {
                     "user_id": str(user.id),
                     "telegram_id": str(user.telegram_id),
@@ -174,6 +173,8 @@ async def enable_autorenew(callback: CallbackQuery):
                     "channel_id": str(channel.id)
                 }
             })
+            
+            print(f"✅ Subscription created: {subscription['id']}")
             
             # Store subscription ID temporarily (will update status via webhook)
             # Use setattr for safety
