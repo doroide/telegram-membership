@@ -87,7 +87,7 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int, amount_paid
                 365: "Yearly"
             }.get(membership.validity_days, f"{membership.validity_days} days")
             
-            # ✅ ONLY "Enable" button, no "No Thanks"
+            # ✅ Single button - Enable Auto-Renewal
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text="🔄 Enable Auto-Renewal",
@@ -95,17 +95,21 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int, amount_paid
                 )]
             ])
             
-            # ✅ Removed auto-charge message at the end
+            # Calculate new expiry date
+            current_expiry = membership.expiry_date
+            if current_expiry.tzinfo is None:
+                current_expiry = current_expiry.replace(tzinfo=timezone.utc)
+            new_expiry = current_expiry + timedelta(days=membership.validity_days)
+            
+            # Simple message
             await bot.send_message(
                 chat_id=user_telegram_id,
                 text=(
                     f"🔄 <b>Enable Auto-Renewal?</b>\n\n"
                     f"📺 Channel: <b>{channel.name}</b>\n"
-                    f"💰 Amount: ₹{int(amount_paid)} {validity_display}\n\n"
-                    f"<b>Benefits:</b>\n"
+                    f"💰 Amount: ₹{int(amount_paid)} / {validity_display}\n\n"
+                    f"✅ Never worry about expiry\n"
                     f"✅ Pay via GPay or PhonePe\n"
-                    f"✅ Automatic renewal before expiry\n"
-                    f"✅ Never lose access\n"
                     f"✅ Cancel anytime in your UPI app"
                 ),
                 reply_markup=keyboard,
@@ -160,6 +164,15 @@ async def enable_autorenew(callback: CallbackQuery):
             # Calculate total renewals (max 12 cycles or until 2 years)
             total_count = min(12, int(730 / membership.validity_days))
             
+            # Get validity display name
+            validity_display = {
+                30: "1 Month",
+                90: "3 Months",
+                120: "4 Months",
+                180: "6 Months",
+                365: "1 Year"
+            }.get(membership.validity_days, f"{membership.validity_days} days")
+            
             # Create subscription
             subscription = razorpay_client.subscription.create({
                 "plan_id": plan_id,
@@ -185,14 +198,10 @@ async def enable_autorenew(callback: CallbackQuery):
             # Send authorization link
             await callback.message.edit_text(
                 f"🔄 <b>Setup Auto-Renewal</b>\n\n"
-                f"Click below to authorize auto-renewal:\n"
+                f"Click the link below:\n"
                 f"👉 {subscription['short_url']}\n\n"
-                f"<b>You'll be asked to:</b>\n"
-                f"1️⃣ Select GPay or PhonePe\n"
-                f"2️⃣ Enter UPI PIN\n"
-                f"3️⃣ Approve auto-deduction\n\n"
-                f"💰 First payment: ₹{membership.amount_paid} (today)\n"
-                f"📅 Next billing: {membership.expiry_date.strftime('%d %b %Y')}\n\n"
+                f"You'll pay ₹{int(membership.amount_paid)} to enable auto-renewal.\n"
+                f"Future renewals will be automatic.\n\n"
                 f"<i>Link expires in 10 minutes</i>",
                 parse_mode="HTML"
             )
@@ -214,11 +223,8 @@ async def enable_autorenew(callback: CallbackQuery):
 
 @router.callback_query(F.data == "autorenew_skip")
 async def skip_autorenew(callback: CallbackQuery):
-    """User declined auto-renewal"""
-    await callback.message.edit_text(
-        "👍 You can enable auto-renewal anytime from /myplans",
-        parse_mode="HTML"
-    )
+    """Handle skip (legacy - no longer shown to users)"""
+    await callback.message.delete()
     await callback.answer()
 
 
