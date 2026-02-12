@@ -12,6 +12,30 @@ from backend.app.services.payment_service import razorpay_client
 router = Router()
 
 # =====================================================
+# PRICING TABLE (Based on Tier + Validity)
+# =====================================================
+
+def get_plan_price(tier: int, validity_days: int) -> int:
+    """Get the correct price for a plan based on tier and validity"""
+    pricing = {
+        # Tier 1 pricing
+        1: {30: 49, 90: 149, 120: 199, 180: 299, 365: 599},
+        # Tier 2 pricing
+        2: {30: 99, 90: 299, 120: 399, 180: 599, 365: 1199},
+        # Tier 3 pricing
+        3: {30: 199, 90: 599, 120: 799, 180: 1199, 365: 2399},
+        # Tier 4 pricing
+        4: {30: 299, 90: 899, 120: 1199, 180: 1799, 365: 3599},
+    }
+    
+    if tier not in pricing or validity_days not in pricing[tier]:
+        print(f"⚠️ Invalid tier/validity: {tier}/{validity_days}")
+        return 0
+    
+    return pricing[tier][validity_days]
+
+
+# =====================================================
 # RAZORPAY PLAN IDS (from environment variables)
 # =====================================================
 
@@ -79,6 +103,13 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int, amount_paid
                 print(f"❌ Channel not found for membership {membership_id}")
                 return
             
+            # ✅ Calculate correct price based on tier + validity
+            correct_price = get_plan_price(membership.tier, membership.validity_days)
+            
+            if correct_price == 0:
+                print(f"❌ Could not calculate price for tier {membership.tier}, validity {membership.validity_days}")
+                return
+            
             validity_display = {
                 30: "Monthly",
                 90: "Quarterly",
@@ -101,13 +132,13 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int, amount_paid
                 current_expiry = current_expiry.replace(tzinfo=timezone.utc)
             new_expiry = current_expiry + timedelta(days=membership.validity_days)
             
-            # Simple message
+            # Simple message with CORRECT calculated price
             await bot.send_message(
                 chat_id=user_telegram_id,
                 text=(
                     f"🔄 <b>Enable Auto-Renewal?</b>\n\n"
                     f"📺 Channel: <b>{channel.name}</b>\n"
-                    f"💰 Amount: ₹{int(amount_paid)} / {validity_display}\n\n"
+                    f"💰 Amount: ₹{correct_price} / {validity_display}\n\n"
                     f"✅ Never worry about expiry\n"
                     f"✅ Pay via GPay or PhonePe\n"
                     f"✅ Cancel anytime in your UPI app"
@@ -116,7 +147,7 @@ async def offer_autorenew(user_telegram_id: int, membership_id: int, amount_paid
                 parse_mode="HTML"
             )
             
-            print(f"✅ Auto-renewal offer sent to user {user_telegram_id}")
+            print(f"✅ Auto-renewal offer sent to user {user_telegram_id} with price ₹{correct_price}")
             
     except Exception as e:
         print(f"⚠️ Error in offer_autorenew: {e}")
@@ -147,6 +178,22 @@ async def enable_autorenew(callback: CallbackQuery):
                 await callback.answer("Error: Membership not found", show_alert=True)
                 return
             
+            # ✅ Calculate correct price based on tier + validity
+            correct_price = get_plan_price(membership.tier, membership.validity_days)
+            
+            if correct_price == 0:
+                await callback.answer("Error calculating price. Please contact admin.", show_alert=True)
+                return
+            
+            # Get validity display name
+            validity_display = {
+                30: "1 Month",
+                90: "3 Months",
+                120: "4 Months",
+                180: "6 Months",
+                365: "1 Year"
+            }.get(membership.validity_days, f"{membership.validity_days} days")
+            
             # Get plan ID for this tier and validity
             plan_id = get_plan_id(membership.validity_days, membership.tier)
             
@@ -161,10 +208,16 @@ async def enable_autorenew(callback: CallbackQuery):
                 )
                 return
             
-            # Calculate total renewals (max 12 cycles or until 2 years)
-            total_count = min(12, int(730 / membership.validity_days))
-            
             # Get validity display name
+            validity_display = {
+                30: "1 Month",
+                90: "3 Months",
+                120: "4 Months",
+                180: "6 Months",
+                365: "1 Year"
+            }.get(membership.validity_days, f"{membership.validity_days} days")
+            
+            # Create subscription - no total_count means it renews indefinitely until cancelled
             validity_display = {
                 30: "1 Month",
                 90: "3 Months",
@@ -177,7 +230,6 @@ async def enable_autorenew(callback: CallbackQuery):
             subscription = razorpay_client.subscription.create({
                 "plan_id": plan_id,
                 "customer_notify": 1,
-                "total_count": total_count,
                 "quantity": 1,
                 "notes": {
                     "user_id": str(user.id),
@@ -200,7 +252,7 @@ async def enable_autorenew(callback: CallbackQuery):
                 f"🔄 <b>Setup Auto-Renewal</b>\n\n"
                 f"Click the link below:\n"
                 f"👉 {subscription['short_url']}\n\n"
-                f"You'll pay ₹{int(membership.amount_paid)} to enable auto-renewal.\n"
+                f"You'll pay ₹{correct_price} to enable auto-renewal.\n"
                 f"Future renewals will be automatic.\n\n"
                 f"<i>Link expires in 10 minutes</i>",
                 parse_mode="HTML"
