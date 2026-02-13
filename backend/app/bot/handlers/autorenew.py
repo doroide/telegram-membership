@@ -250,13 +250,10 @@ async def enable_autorenew(callback: CallbackQuery):
             setattr(membership, 'subscription_status', "pending")
             await session.commit()
             
-            # Send authorization link
+            # Send authorization link - simple and clean
             await callback.message.edit_text(
                 f"🔄 <b>Setup Auto-Renewal</b>\n\n"
-                f"Click the link below:\n"
                 f"👉 {subscription['short_url']}\n\n"
-                f"You'll pay ₹{correct_price} to enable auto-renewal.\n"
-                f"Future renewals will be automatic.\n\n"
                 f"<i>Link expires in 10 minutes</i>",
                 parse_mode="HTML"
             )
