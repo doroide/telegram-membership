@@ -217,7 +217,9 @@ async def enable_autorenew(callback: CallbackQuery):
                 365: "1 Year"
             }.get(membership.validity_days, f"{membership.validity_days} days")
             
-            # Create subscription - no total_count means it renews indefinitely until cancelled
+            # Calculate total renewals (max 12 cycles or until 2 years)
+            total_count = min(12, int(730 / membership.validity_days))
+            
             validity_display = {
                 30: "1 Month",
                 90: "3 Months",
@@ -230,6 +232,7 @@ async def enable_autorenew(callback: CallbackQuery):
             subscription = razorpay_client.subscription.create({
                 "plan_id": plan_id,
                 "customer_notify": 1,
+                "total_count": total_count,  # ✅ REQUIRED: Number of billing cycles
                 "quantity": 1,
                 "notes": {
                     "user_id": str(user.id),
