@@ -34,7 +34,7 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected_signature, signature)
 
 
-@router.post("/razorpay")
+@router.post("/webhook")
 async def razorpay_webhook(request: Request):
     """Handle Razorpay webhook events"""
     try:
