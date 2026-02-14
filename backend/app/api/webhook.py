@@ -136,18 +136,7 @@ async def handle_payment_captured(data):
             channel = await db.get(Channel, channel_id)
             expiry_str = membership.expiry_date.strftime("%d %b %Y")
             
-            # Success message
-            await bot.send_message(
-                telegram_id,
-                f"✅ <b>Payment Successful!</b>\n\n"
-                f"💳 Amount: ₹{amount:.0f}\n"
-                f"📺 Channel: {channel.name}\n"
-                f"⏰ Valid until: {expiry_str}\n\n"
-                f"🔗 Getting your invite link...",
-                parse_mode="HTML"
-            )
-            
-            # Invite link
+            # Send invite link (merged with success message)
             try:
                 invite_link = await bot.create_chat_invite_link(
                     int(channel.telegram_chat_id),
@@ -157,20 +146,32 @@ async def handle_payment_captured(data):
                 
                 await bot.send_message(
                     telegram_id,
-                    f"🔗 <b>Your Invite Link</b>\n\n"
-                    f"Click to join: {invite_link.invite_link}\n\n"
-                    f"⚠️ Expires in 10 minutes",
+                    f"✅ <b>Payment Successful!</b>\n\n"
+                    f"💳 Amount: ₹{amount:.0f}\n"
+                    f"📺 Channel: {channel.name}\n"
+                    f"⏰ Valid until: {expiry_str}\n\n"
+                    f"🔗 <b>Your Invite Link:</b>\n"
+                    f"{invite_link.invite_link}\n\n"
+                    f"⚠️ Link expires in 10 minutes",
                     parse_mode="HTML"
                 )
             except Exception as e:
                 logger.error(f"Invite link error: {e}")
+                await bot.send_message(
+                    telegram_id,
+                    f"✅ <b>Payment Successful!</b>\n\n"
+                    f"💳 Amount: ₹{amount:.0f}\n"
+                    f"📺 Channel: {channel.name}\n"
+                    f"⏰ Valid until: {expiry_str}\n\n"
+                    f"❌ Error creating invite link. Contact admin.",
+                    parse_mode="HTML"
+                )
             
-            # Auto-renewal offer (NO UPSELL)
+            # Auto-renewal offer (NO Maybe Later button)
             await asyncio.sleep(2)
             
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 Enable Auto-Renewal", callback_data=f"setup_autorenew_{user.id}_{channel_id}_{validity_days}")],
-                [InlineKeyboardButton(text="⏭️ Maybe Later", callback_data="skip_autorenew")]
+                [InlineKeyboardButton(text="🔄 Enable Auto-Renewal", callback_data=f"setup_autorenew_{user.id}_{channel_id}_{validity_days}")]
             ])
             
             await bot.send_message(
