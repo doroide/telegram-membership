@@ -233,7 +233,10 @@ async def handle_payment_captured(data):
             
             # ONLY show auto-renewal offer on Day 0
             # NO UPSELL HERE - that comes on Day 5 via scheduled task
+            logger.info(f"Checking auto-renewal for tier={tier}, days={validity_days}")
             plan_info = get_plan_price(tier, validity_days)
+            logger.info(f"Plan info returned: {plan_info}")
+            
             if plan_info:
                 plan_id = plan_info["plan_id"]
                 
@@ -255,6 +258,9 @@ async def handle_payment_captured(data):
                     parse_mode="HTML",
                     reply_markup=keyboard
                 )
+                logger.info(f"Auto-renewal offer sent to user {telegram_id}")
+            else:
+                logger.warning(f"No plan found for tier={tier}, days={validity_days}")
             
             logger.info(f"Payment captured and processed for user {telegram_id}")
     
