@@ -188,7 +188,7 @@ async def handle_payment_captured(data):
             # Generate and send invite link
             try:
                 invite_link = await bot.create_chat_invite_link(
-                    channel.telegram_chat_id,
+                    int(channel.telegram_chat_id),
                     member_limit=1,
                     expire_date=datetime.now(timezone.utc) + timedelta(minutes=10)
                 )
