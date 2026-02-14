@@ -1,299 +1,435 @@
-import os
-from datetime import datetime, timezone
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
-from aiogram.exceptions import TelegramBadRequest
+"""
+COMPLETE webhook.py - Replace your entire backend/app/api/webhook.py with this
+Handles all Razorpay webhook events with NO immediate upsell (comes on Day 5 instead)
+"""
+
+from fastapi import APIRouter, Request, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
+from datetime import datetime, timedelta, timezone
 from backend.app.db.session import async_session
-from backend.app.db.models import User, Channel, Membership
-from backend.app.services.payment_service import create_payment_link
+from backend.app.db.models import User, Channel, Membership, Payment
+from backend.bot.bot import bot
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from backend.app.bot.handlers.autorenew import get_plan_price
+import hmac
+import hashlib
+import os
+import asyncio
+import logging
 
-router = Router()
+router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# Admin contact username
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
 ADMIN_USERNAME = "Doroide47"
 
 
-# =====================================================
-# /MYPLANS COMMAND
-# =====================================================
-
-@router.message(Command("myplans"))
-async def myplans_command(message: Message):
-    """Show user's all memberships (public + private channels)"""
-    await show_user_plans(message.from_user.id, message=message)
-
-
-@router.callback_query(F.data == "my_plans")
-async def myplans_callback(callback: CallbackQuery):
-    """Show user's all memberships via callback"""
-    await show_user_plans(callback.from_user.id, callback=callback)
+def verify_webhook_signature(payload: bytes, signature: str) -> bool:
+    """Verify Razorpay webhook signature"""
+    expected_signature = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected_signature, signature)
 
 
-async def show_user_plans(telegram_id: int, message: Message = None, callback: CallbackQuery = None):
-    """
-    Display all user memberships
-    Shows both public and private channel memberships
-    """
-    async with async_session() as session:
-        # Get user
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == telegram_id)
-        )
-        user = user_result.scalar_one_or_none()
+@router.post("/razorpay")
+async def razorpay_webhook(request: Request):
+    """Handle Razorpay webhook events"""
+    try:
+        # Get payload and signature
+        payload = await request.body()
+        signature = request.headers.get("X-Razorpay-Signature")
         
-        if not user:
-            text = "❌ User not found. Please start with /start"
-            if callback:
-                await callback.answer(text, show_alert=True)
-            else:
-                await message.answer(text)
-            return
+        # Verify signature
+        if not verify_webhook_signature(payload, signature):
+            logger.error("Invalid webhook signature")
+            raise HTTPException(status_code=400, detail="Invalid signature")
         
-        # Get all memberships (active and expired)
-        memberships_result = await session.execute(
-            select(Membership, Channel)
-            .join(Channel, Membership.channel_id == Channel.id)
-            .where(Membership.user_id == user.id)
-            .order_by(Membership.is_active.desc(), Membership.expiry_date.desc())
-        )
-        memberships_data = memberships_result.all()
+        # Parse data
+        data = await request.json()
+        event = data.get("event")
         
-        if not memberships_data:
-            text = (
-                "📋 <b>My Plans</b>\n\n"
-                "You don't have any subscriptions yet.\n\n"
-                "Use /start to browse available channels!"
-            )
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Back to Channels", callback_data="back_to_channels")],
-                [InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")]
-            ])
-            
-            if callback:
-                try:
-                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-                    await callback.answer()
-                except TelegramBadRequest:
-                    await callback.answer()
-            else:
-                await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
-            return
+        logger.info(f"Received webhook event: {event}")
         
-        # Build response with tier info
-        tier_display = f"Tier {user.current_tier}"
-        if user.is_lifetime_member:
-            tier_display = f"Lifetime Member (₹{user.lifetime_amount})"
-        
-        response = (
-            f"📋 <b>My Subscriptions</b>\n\n"
-            f"💎 Your Tier: {tier_display}\n\n"
-        )
-        
-        # Use timezone-aware datetime
-        now = datetime.now(timezone.utc)
-        active_plans = []
-        expired_plans = []
-        
-        # Separate active and expired
-        for membership, channel in memberships_data:
-            # Comparing timezone-aware datetimes
-            if membership.is_active and membership.expiry_date > now:
-                active_plans.append((membership, channel))
-            else:
-                expired_plans.append((membership, channel))
-        
-        # Show active plans
-        if active_plans:
-            response += "✅ <b>Active Plans:</b>\n\n"
-            for membership, channel in active_plans:
-                days_left = (membership.expiry_date - now).days
-                visibility = "🔓" if channel.is_public else "🔒"
-                
-                # Show auto-renewal status
-                autorenew_status = ""
-                if getattr(membership, 'auto_renew_enabled', False) and getattr(membership, 'subscription_status', '') == "active":
-                    autorenew_status = "\n   🔄 <b>Auto-Renewal: ON</b>"
-                
-                response += (
-                    f"{visibility} <b>{channel.name}</b>\n"
-                    f"   • Expires: {membership.expiry_date.strftime('%d %b %Y')}\n"
-                    f"   • Days left: {days_left}\n"
-                    f"   • Amount: ₹{membership.amount_paid}"
-                    f"{autorenew_status}\n\n"
-                )
-        
-        # Show expired plans
-        if expired_plans:
-            response += "⏰ <b>Expired Plans:</b>\n\n"
-            for membership, channel in expired_plans:
-                visibility = "🔓" if channel.is_public else "🔒"
-                
-                response += (
-                    f"{visibility} <b>{channel.name}</b>\n"
-                    f"   • Expired: {membership.expiry_date.strftime('%d %b %Y')}\n"
-                    f"   • Last paid: ₹{membership.amount_paid}\n\n"
-                )
-        
-        # Build keyboard with quick actions
-        keyboard = []
-        
-        # Add manage auto-renewal buttons for active plans with auto-renewal
-        for membership, channel in active_plans:
-            if getattr(membership, 'auto_renew_enabled', False) and getattr(membership, 'subscription_status', '') == "active":
-                keyboard.append([
-                    InlineKeyboardButton(
-                        text=f"⚙️ Manage Auto-Renewal - {channel.name}",
-                        callback_data=f"autorenew_manage_{membership.id}"
-                    )
-                ])
-        
-        # ✅ NEW: One-Click Renew buttons for expired plans
-        if expired_plans:
-            for membership, channel in expired_plans:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        text=f"⚡ Quick Renew - {channel.name}",
-                        callback_data=f"quick_renew_{membership.id}"
-                    )
-                ])
-        
-        # Add extend buttons for active plans
-        if active_plans:
-            keyboard.append([
-                InlineKeyboardButton(
-                    text="➕ Extend Active Plans",
-                    callback_data="extend_info"
-                )
-            ])
-        
-        keyboard.append([
-            InlineKeyboardButton(text="🔙 Back to Channels", callback_data="back_to_channels")
-        ])
-        keyboard.append([
-            InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")
-        ])
-        
-        if callback:
-            try:
-                await callback.message.edit_text(
-                    response,
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-                    parse_mode="HTML"
-                )
-                await callback.answer()
-            except TelegramBadRequest:
-                # Message is same or query too old, just answer callback
-                await callback.answer()
+        # Handle different events
+        if event == "payment.captured":
+            await handle_payment_captured(data)
+        elif event == "subscription.authenticated":
+            await handle_subscription_authenticated(data)
+        elif event == "subscription.charged":
+            await handle_subscription_charged(data)
+        elif event == "subscription.halted":
+            await handle_subscription_halted(data)
+        elif event == "subscription.cancelled":
+            await handle_subscription_cancelled(data)
         else:
-            await message.answer(
-                response,
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+            logger.info(f"Unhandled event: {event}")
+        
+        return {"status": "ok"}
+    
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def handle_payment_captured(data):
+    """
+    Handle one-time payment success
+    Day 0: Show payment success + invite link + auto-renewal offer
+    NO UPSELL HERE - that comes on Day 5
+    """
+    try:
+        payment_entity = data.get("payload", {}).get("payment", {}).get("entity", {})
+        payment_id = payment_entity.get("id")
+        amount = payment_entity.get("amount", 0) / 100  # Convert paise to rupees
+        notes = payment_entity.get("notes", {})
+        
+        user_id = int(notes.get("user_id"))
+        channel_id = int(notes.get("channel_id"))
+        validity_days = int(notes.get("validity_days"))
+        tier = int(notes.get("tier"))
+        
+        # Check if this is an upsell payment
+        is_upsell = notes.get("is_upsell") == "true"
+        upsell_id = notes.get("upsell_id")
+        
+        async with async_session() as db:
+            # Create payment record
+            payment = Payment(
+                user_id=user_id,
+                channel_id=channel_id,
+                amount=amount,
+                payment_id=payment_id,
+                status="captured"
+            )
+            db.add(payment)
+            
+            # Get user
+            user = await db.get(User, user_id)
+            telegram_id = user.telegram_id
+            
+            # Check for existing active membership
+            result = await db.execute(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.channel_id == channel_id,
+                    Membership.is_active == True
+                )
+            )
+            membership = result.scalar_one_or_none()
+            
+            now = datetime.now(timezone.utc)
+            
+            if membership and membership.expiry_date > now:
+                # Extend existing active membership
+                old_expiry = membership.expiry_date
+                membership.expiry_date = old_expiry + timedelta(days=validity_days)
+                membership.amount_paid += amount
+                logger.info(f"Extended membership for user {user_id}, channel {channel_id}")
+            else:
+                # Create new membership or reactivate expired one
+                if membership:
+                    # Reactivate expired membership
+                    membership.tier = tier
+                    membership.validity_days = validity_days
+                    membership.amount_paid = amount
+                    membership.start_date = now
+                    membership.expiry_date = now + timedelta(days=validity_days)
+                    membership.is_active = True
+                    membership.reminded_7d = False
+                    membership.reminded_1d = False
+                    membership.reminded_expired = False
+                else:
+                    # Create brand new membership
+                    membership = Membership(
+                        user_id=user_id,
+                        channel_id=channel_id,
+                        tier=tier,
+                        validity_days=validity_days,
+                        amount_paid=amount,
+                        start_date=now,
+                        expiry_date=now + timedelta(days=validity_days),
+                        is_active=True
+                    )
+                    db.add(membership)
+                
+                logger.info(f"Created new membership for user {user_id}, channel {channel_id}")
+            
+            # Update user stats
+            user.highest_amount_paid = max(user.highest_amount_paid or 0, amount)
+            
+            # If this was an upsell payment, mark it as completed
+            if is_upsell and upsell_id:
+                from backend.app.db.models import UpsellAttempt
+                upsell_attempt = await db.get(UpsellAttempt, int(upsell_id))
+                if upsell_attempt:
+                    upsell_attempt.accepted = True
+                    logger.info(f"Marked upsell {upsell_id} as completed")
+            
+            await db.commit()
+            
+            # Get channel info
+            channel = await db.get(Channel, channel_id)
+            expiry_str = membership.expiry_date.strftime("%d %b %Y")
+            
+            # Send success message
+            await bot.send_message(
+                telegram_id,
+                f"✅ <b>Payment Successful!</b>\n\n"
+                f"💳 Amount: ₹{amount:.0f}\n"
+                f"📺 Channel: {channel.name}\n"
+                f"⏰ Valid until: {expiry_str}\n\n"
+                f"🔗 Getting your invite link...",
                 parse_mode="HTML"
             )
-
-
-# =====================================================
-# ✅ NEW: QUICK RENEW (One-Click Renewal)
-# =====================================================
-
-@router.callback_query(F.data.startswith("quick_renew_"))
-async def quick_renew(callback: CallbackQuery):
-    """Quick renewal - creates payment link with last plan details"""
-    
-    membership_id = int(callback.data.split("_")[2])
-    telegram_id = callback.from_user.id
-    
-    async with async_session() as session:
-        # Get membership and related data
-        membership_result = await session.execute(
-            select(Membership, Channel, User)
-            .join(Channel, Membership.channel_id == Channel.id)
-            .join(User, Membership.user_id == User.id)
-            .where(Membership.id == membership_id)
-        )
-        result = membership_result.first()
-        
-        if not result:
-            await callback.answer("Membership not found", show_alert=True)
-            return
-        
-        membership, channel, user = result
-        
-        # Use same plan details as last purchase
-        validity_days = membership.validity_days
-        
-        # Calculate price based on current tier
-        from backend.app.bot.handlers.autorenew import get_plan_price
-        amount = get_plan_price(user.current_tier, validity_days)
-        
-        if amount == 0:
-            await callback.answer("Error calculating price. Please use Browse Channels.", show_alert=True)
-            return
-        
-        # Create payment link
-        try:
-            payment_link = create_payment_link(
-                user_id=user.id,
-                telegram_id=telegram_id,
-                channel_id=channel.id,
-                amount=amount,
-                validity_days=validity_days
-            )
             
-            validity_display = {
-                30: "1 Month",
-                90: "3 Months",
-                120: "4 Months",
-                180: "6 Months",
-                365: "1 Year"
-            }.get(validity_days, f"{validity_days} days")
-            
-            await callback.message.edit_text(
-                f"⚡ <b>Quick Renew - {channel.name}</b>\n\n"
-                f"💰 Amount: ₹{amount}\n"
-                f"⏱️ Validity: {validity_display}\n"
-                f"💎 Your Tier: {user.current_tier}\n\n"
-                f"👉 Pay here:\n{payment_link}\n\n"
-                f"<i>Link expires in 10 minutes</i>",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔙 Back to My Plans", callback_data="my_plans")],
+            # Generate and send invite link
+            try:
+                invite_link = await bot.create_chat_invite_link(
+                    channel.telegram_chat_id,
+                    member_limit=1,
+                    expire_date=datetime.now(timezone.utc) + timedelta(minutes=10)
+                )
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")]
                 ])
-            )
+                
+                await bot.send_message(
+                    telegram_id,
+                    f"🔗 <b>Your Invite Link</b>\n\n"
+                    f"Click below to join:\n{invite_link.invite_link}\n\n"
+                    f"⚠️ Link expires in 10 minutes",
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+            except Exception as e:
+                logger.error(f"Error creating invite link: {e}")
+                await bot.send_message(
+                    telegram_id,
+                    f"❌ Error creating invite link. Please contact admin.\n\n"
+                    f"📞 @{ADMIN_USERNAME}",
+                    parse_mode="HTML"
+                )
             
-            await callback.answer("✅ Payment link created!", show_alert=False)
+            # Wait 3 seconds before showing auto-renewal offer
+            await asyncio.sleep(3)
             
-        except Exception as e:
-            print(f"Error creating payment link: {e}")
-            await callback.answer("Error creating payment link. Please try again.", show_alert=True)
+            # ONLY show auto-renewal offer on Day 0
+            # NO UPSELL HERE - that comes on Day 5 via scheduled task
+            plan_info = get_plan_price(tier, validity_days)
+            if plan_info:
+                plan_id = plan_info["plan_id"]
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="🔄 Enable Auto-Renewal", 
+                        callback_data=f"autorenew_{user_id}_{channel_id}_{plan_id}_{validity_days}"
+                    )],
+                    [InlineKeyboardButton(text="⏭️ Maybe Later", callback_data="autorenew_skip")]
+                ])
+                
+                await bot.send_message(
+                    telegram_id,
+                    f"💰 <b>Never Miss Access!</b>\n\n"
+                    f"Enable Auto-Renewal for ₹{amount:.0f}/month\n\n"
+                    f"✅ Automatic UPI payments\n"
+                    f"✅ Cancel anytime in your UPI app\n"
+                    f"✅ No payment interruptions",
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+            
+            logger.info(f"Payment captured and processed for user {telegram_id}")
+    
+    except Exception as e:
+        logger.error(f"Error handling payment.captured: {e}")
 
 
-# =====================================================
-# EXTEND INFO
-# =====================================================
-
-@router.callback_query(F.data == "extend_info")
-async def extend_info_callback(callback: CallbackQuery):
-    """Show info about extending active plans"""
+async def handle_subscription_authenticated(data):
+    """
+    Handle subscription setup completion (first payment for auto-renewal)
+    User has authorized UPI AutoPay
+    """
     try:
-        await callback.message.edit_text(
-            "➕ <b>Extend Active Plans</b>\n\n"
-            "To extend your active subscription:\n\n"
-            "1. Go back to channels\n"
-            "2. Select the channel you want to extend\n"
-            "3. Purchase another plan\n\n"
-            "⚠️ New validity will be added to your current expiry date!",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Back to My Plans", callback_data="my_plans")],
-                [InlineKeyboardButton(text="📺 Browse Channels", callback_data="back_to_channels")]
-            ]),
-            parse_mode="HTML"
-        )
-        await callback.answer()
-    except TelegramBadRequest:
-        await callback.answer()
+        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
+        subscription_id = subscription_entity.get("id")
+        status = subscription_entity.get("status")
+        notes = subscription_entity.get("notes", {})
+        
+        user_id = int(notes.get("user_id"))
+        channel_id = int(notes.get("channel_id"))
+        validity_days = int(notes.get("validity_days"))
+        tier = int(notes.get("tier"))
+        amount = subscription_entity.get("total_count", 0)
+        
+        async with async_session() as db:
+            # Get membership
+            result = await db.execute(
+                select(Membership).where(
+                    Membership.user_id == user_id,
+                    Membership.channel_id == channel_id,
+                    Membership.is_active == True
+                )
+            )
+            membership = result.scalar_one_or_none()
+            
+            if membership:
+                # Enable auto-renewal
+                membership.auto_renew_enabled = True
+                membership.razorpay_subscription_id = subscription_id
+                membership.subscription_status = status
+                membership.auto_renew_method = "upi"
+                
+                await db.commit()
+                
+                # Get user
+                user = await db.get(User, user_id)
+                channel = await db.get(Channel, channel_id)
+                
+                # Send confirmation (SILENT - no spam)
+                await bot.send_message(
+                    user.telegram_id,
+                    f"✅ <b>Auto-Renewal Activated!</b>\n\n"
+                    f"📺 Channel: {channel.name}\n"
+                    f"🔄 Renews automatically every month\n"
+                    f"💰 Amount: ₹{amount:.0f}\n\n"
+                    f"You can cancel anytime in your UPI app (GPay/PhonePe/Paytm)",
+                    parse_mode="HTML"
+                )
+                
+                logger.info(f"Auto-renewal enabled for user {user_id}, channel {channel_id}")
+    
+    except Exception as e:
+        logger.error(f"Error handling subscription.authenticated: {e}")
+
+
+async def handle_subscription_charged(data):
+    """
+    Handle monthly auto-renewal charge
+    This is SILENT - no notification to user (to avoid spam)
+    """
+    try:
+        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
+        subscription_id = subscription_entity.get("id")
+        
+        async with async_session() as db:
+            # Find membership by subscription ID
+            result = await db.execute(
+                select(Membership).where(
+                    Membership.razorpay_subscription_id == subscription_id,
+                    Membership.is_active == True
+                )
+            )
+            membership = result.scalar_one_or_none()
+            
+            if membership:
+                # Extend expiry by validity_days
+                membership.expiry_date = membership.expiry_date + timedelta(days=membership.validity_days)
+                membership.subscription_status = "active"
+                
+                # Reset reminder flags
+                membership.reminded_7d = False
+                membership.reminded_1d = False
+                membership.reminded_expired = False
+                
+                await db.commit()
+                
+                logger.info(f"Auto-renewal charge processed for membership {membership.id}")
+                
+                # SILENT RENEWAL - No notification to avoid spam
+    
+    except Exception as e:
+        logger.error(f"Error handling subscription.charged: {e}")
+
+
+async def handle_subscription_halted(data):
+    """
+    Handle auto-renewal payment failure
+    Notify user to fix payment method
+    """
+    try:
+        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
+        subscription_id = subscription_entity.get("id")
+        
+        async with async_session() as db:
+            result = await db.execute(
+                select(Membership).where(
+                    Membership.razorpay_subscription_id == subscription_id,
+                    Membership.is_active == True
+                )
+            )
+            membership = result.scalar_one_or_none()
+            
+            if membership:
+                membership.subscription_status = "halted"
+                await db.commit()
+                
+                # Get user and channel
+                user = await db.get(User, membership.user_id)
+                channel = await db.get(Channel, membership.channel_id)
+                
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")]
+                ])
+                
+                # Notify user
+                await bot.send_message(
+                    user.telegram_id,
+                    f"⚠️ <b>Auto-Renewal Payment Failed</b>\n\n"
+                    f"📺 Channel: {channel.name}\n\n"
+                    f"Your auto-renewal payment couldn't be processed. "
+                    f"Please check your UPI app or contact admin.\n\n"
+                    f"Your subscription is still active until expiry.",
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+                
+                logger.warning(f"Auto-renewal halted for membership {membership.id}")
+    
+    except Exception as e:
+        logger.error(f"Error handling subscription.halted: {e}")
+
+
+async def handle_subscription_cancelled(data):
+    """
+    Handle auto-renewal cancellation by user
+    """
+    try:
+        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
+        subscription_id = subscription_entity.get("id")
+        
+        async with async_session() as db:
+            result = await db.execute(
+                select(Membership).where(
+                    Membership.razorpay_subscription_id == subscription_id,
+                    Membership.is_active == True
+                )
+            )
+            membership = result.scalar_one_or_none()
+            
+            if membership:
+                membership.auto_renew_enabled = False
+                membership.subscription_status = "cancelled"
+                await db.commit()
+                
+                # Get user and channel
+                user = await db.get(User, membership.user_id)
+                channel = await db.get(Channel, membership.channel_id)
+                
+                # Notify user
+                await bot.send_message(
+                    user.telegram_id,
+                    f"🔕 <b>Auto-Renewal Cancelled</b>\n\n"
+                    f"📺 Channel: {channel.name}\n\n"
+                    f"Your subscription will remain active until the expiry date. "
+                    f"You can renew manually from /myplans",
+                    parse_mode="HTML"
+                )
+                
+                logger.info(f"Auto-renewal cancelled for membership {membership.id}")
+    
+    except Exception as e:
+        logger.error(f"Error handling subscription.cancelled: {e}")

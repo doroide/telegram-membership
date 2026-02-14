@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, Request
 from aiogram.types import Update
+import asyncio
 
 app = FastAPI()
 
@@ -12,6 +13,7 @@ from backend.bot.bot import bot, dp
 # ======================================================
 # IMPORT HANDLERS
 # ======================================================
+from backend.app.tasks.upsell_sender import scheduled_upsell_task
 from backend.app.bot.handlers.start import router as start_router
 from backend.app.bot.handlers.renew import router as renew_router
 from backend.app.bot.handlers.broadcast import router as broadcast_router
@@ -25,7 +27,7 @@ from backend.app.bot.handlers.upsell import router as upsell_router
 from backend.app.bot.handlers.upsell_stats import router as upsell_stats_router
 from backend.app.bot.handlers.admin_panel import router as admin_panel_router
 from backend.app.bot.handlers.analytics import router as analytics_router
-from backend.app.bot.handlers.autorenew import router as autorenew_router  # ✅ NEW
+from backend.app.bot.handlers.autorenew import router as autorenew_router
 
 from backend.app.db.base import Base
 from backend.app.db.session import engine
@@ -34,13 +36,12 @@ from backend.app.db.session import engine
 # REGISTER ROUTERS
 # ======================================================
 dp.include_router(autorenew_router)
-dp.include_router(upsell_router)        # ✅ ADD THIS
-dp.include_router(upsell_stats_router)  # ✅ ADD THIS
+dp.include_router(upsell_router)
+dp.include_router(upsell_stats_router)
 dp.include_router(start_router)
 dp.include_router(add_user_router)
 dp.include_router(channel_plans_router)
 dp.include_router(myplans_router)
-  # ✅ NEW - Register autorenew router
 dp.include_router(renew_router)
 dp.include_router(broadcast_router)
 dp.include_router(add_channel_router)
@@ -90,6 +91,10 @@ async def on_startup():
     from backend.app.tasks.scheduler import start_scheduler
     start_scheduler()
     print("✅ Background workers started")
+    
+    # ✅ START UPSELL SENDER
+    asyncio.create_task(scheduled_upsell_task())
+    print("✅ Upsell sender task started")
 
 # ======================================================
 # SHUTDOWN
