@@ -89,20 +89,31 @@ async def handle_payment_captured(data):
         logger.info(f"Payment notes received: {notes}")
         
         # Safety checks for required fields
-        if not notes.get("user_id") or not notes.get("channel_id"):
+        if not notes.get("telegram_id") or not notes.get("channel_id"):
             logger.error(f"Missing required notes in payment: {notes}")
             return
         
-        user_id = int(notes.get("user_id"))
+        telegram_id = int(notes.get("telegram_id"))
         channel_id = int(notes.get("channel_id"))
         validity_days = int(notes.get("validity_days", 30))
-        tier = int(notes.get("tier", 3))
         
         # Check if this is an upsell payment
         is_upsell = notes.get("is_upsell") == "true"
         upsell_id = notes.get("upsell_id")
         
         async with async_session() as db:
+            # Get user by telegram_id
+            result = await db.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                logger.error(f"User not found with telegram_id: {telegram_id}")
+                return
+            
+            user_id = user.id
+            tier = user.current_tier  # Use user's current tier
             # Create payment record
             payment = Payment(
                 user_id=user_id,
@@ -112,10 +123,6 @@ async def handle_payment_captured(data):
                 status="captured"
             )
             db.add(payment)
-            
-            # Get user
-            user = await db.get(User, user_id)
-            telegram_id = user.telegram_id
             
             # Check for existing active membership
             result = await db.execute(
