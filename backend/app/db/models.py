@@ -117,6 +117,9 @@ class UpsellAttempt(Base):
    accepted = Column(Boolean, default=False, nullable=False)
    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+   user = relationship("User", back_populates="upsell_attempts")
+
+
 
 # =========================================================
 # PAYMENTS
