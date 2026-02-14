@@ -517,16 +517,23 @@ async def razorpay_webhook(
             except:
                 print(f"❌ Could not send fallback message")
         
-        # =========================================
-        # OFFER AUTO-RENEWAL (async task)
-        # =========================================
-        # Don't offer for lifetime plans
-        if validity_days != 730:
-            import asyncio
-            from backend.app.bot.handlers.autorenew import offer_autorenew
-            
-            # Run in background, don't wait - pass the actual payment amount
-            asyncio.create_task(offer_autorenew(telegram_id, membership.id, amount))
+       # =========================================
+    # OFFER AUTO-RENEWAL & UPSELL (async tasks)
+    # =========================================
+    if validity_days != 730:  # Don't offer for lifetime plans
+        import asyncio
+        from backend.app.bot.handlers.autorenew import offer_autorenew
+        from backend.app.bot.handlers.upsell import offer_upsell
+        
+        # Offer auto-renewal first
+        asyncio.create_task(offer_autorenew(telegram_id, membership.id, amount))
+        
+        # Then offer upsell after a short delay (5 seconds)
+        async def delayed_upsell():
+            await asyncio.sleep(5)
+            await offer_upsell(telegram_id, membership.id, amount)
+        
+        asyncio.create_task(delayed_upsell())
 
         return {"ok": True}
     

@@ -21,6 +21,8 @@ from backend.app.bot.handlers.stats import router as stats_router
 from backend.app.bot.handlers.export import router as export_router
 from backend.app.bot.handlers.channel_plans import router as channel_plans_router
 from backend.app.bot.handlers.myplans import router as myplans_router
+from backend.app.bot.handlers.upsell import router as upsell_router
+from backend.app.bot.handlers.upsell_stats import router as upsell_stats_router
 from backend.app.bot.handlers.admin_panel import router as admin_panel_router
 from backend.app.bot.handlers.analytics import router as analytics_router
 from backend.app.bot.handlers.autorenew import router as autorenew_router  # ✅ NEW
@@ -32,6 +34,8 @@ from backend.app.db.session import engine
 # REGISTER ROUTERS
 # ======================================================
 dp.include_router(autorenew_router)
+dp.include_router(upsell_router)        # ✅ ADD THIS
+dp.include_router(upsell_stats_router)  # ✅ ADD THIS
 dp.include_router(start_router)
 dp.include_router(add_user_router)
 dp.include_router(channel_plans_router)

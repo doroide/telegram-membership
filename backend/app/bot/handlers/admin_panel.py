@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timezone
-from aiogram import Router, F
+from aiogram import Router, F	
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from sqlalchemy import select, func
@@ -28,6 +28,7 @@ async def admin_panel(message: Message):
         [InlineKeyboardButton(text="👥 View All Users", callback_data="admin_view_users")],
         [InlineKeyboardButton(text="➕ Add User Manually", callback_data="admin_add_user")],
         [InlineKeyboardButton(text="📺 View All Channels", callback_data="admin_view_channels")],
+        [InlineKeyboardButton(text="🎁 Upsell Stats", callback_data="upsell_stats")],
         [InlineKeyboardButton(text="➕ Add New Channel", callback_data="admin_add_channel")],
         [InlineKeyboardButton(text="💰 View Payments", callback_data="admin_view_payments")],
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],

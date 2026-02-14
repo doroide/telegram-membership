@@ -1,3 +1,4 @@
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Numeric, ForeignKey
 from datetime import datetime
 from sqlalchemy import (
     Column,
@@ -99,6 +100,23 @@ class Membership(Base):
     
     user = relationship("User", back_populates="memberships")
     channel = relationship("Channel", back_populates="memberships")
+
+class UpsellAttempt(Base):
+"""Track upselling attempts and conversions"""
+    
+   tablename = "upsell_attempts"
+
+   id = Column(Integer, primary_key=True, index=True)
+   user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+   channel_id = Column(Integer, nullable=False)
+   from_validity_days = Column(Integer, nullable=False)  # 30 (1 month)
+   to_validity_days = Column(Integer, nullable=False)    # 90 (3 months)   
+   from_amount = Column(Numeric(10, 2), nullable=False)
+   to_amount = Column(Numeric(10, 2), nullable=False)
+   discount_amount = Column(Numeric(10, 2), nullable=False)
+   accepted = Column(Boolean, default=False, nullable=False)
+   created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
 
 # =========================================================
 # PAYMENTS

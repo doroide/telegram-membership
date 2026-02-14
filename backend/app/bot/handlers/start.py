@@ -10,6 +10,9 @@ from backend.app.db.models import User, Channel, Membership
 
 router = Router()
 
+# Admin contact username
+ADMIN_USERNAME = "Doroide47"
+
 
 # =====================================================
 # /START COMMAND
@@ -105,9 +108,12 @@ async def start_command(message: Message):
                 )
             ])
         
-        # Add My Plans button
+        # Add My Plans and Contact Admin buttons
         keyboard.append([
             InlineKeyboardButton(text="📋 My Plans", callback_data="my_plans")
+        ])
+        keyboard.append([
+            InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")
         ])
         
         welcome_message = (
