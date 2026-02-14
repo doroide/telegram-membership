@@ -8,7 +8,7 @@ from sqlalchemy import select
 from datetime import datetime, timedelta, timezone
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Channel, Membership, Payment
-from bot.bot import bot
+from backend.bot.bot import bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from backend.app.bot.handlers.autorenew import get_plan_price
 import hmac
