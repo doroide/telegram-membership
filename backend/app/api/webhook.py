@@ -86,10 +86,17 @@ async def handle_payment_captured(data):
         amount = payment_entity.get("amount", 0) / 100  # Convert paise to rupees
         notes = payment_entity.get("notes", {})
         
+        logger.info(f"Payment notes received: {notes}")
+        
+        # Safety checks for required fields
+        if not notes.get("user_id") or not notes.get("channel_id"):
+            logger.error(f"Missing required notes in payment: {notes}")
+            return
+        
         user_id = int(notes.get("user_id"))
         channel_id = int(notes.get("channel_id"))
-        validity_days = int(notes.get("validity_days"))
-        tier = int(notes.get("tier"))
+        validity_days = int(notes.get("validity_days", 30))
+        tier = int(notes.get("tier", 3))
         
         # Check if this is an upsell payment
         is_upsell = notes.get("is_upsell") == "true"
