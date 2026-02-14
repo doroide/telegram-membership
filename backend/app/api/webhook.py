@@ -81,6 +81,7 @@ async def handle_payment_captured(data):
     NO UPSELL HERE - that comes on Day 5
     """
     try:
+        logger.info("=== PAYMENT CAPTURED HANDLER START ===")
         payment_entity = data.get("payload", {}).get("payment", {}).get("entity", {})
         payment_id = payment_entity.get("id")
         amount = payment_entity.get("amount", 0) / 100  # Convert paise to rupees
@@ -112,8 +113,9 @@ async def handle_payment_captured(data):
                 logger.error(f"User not found with telegram_id: {telegram_id}")
                 return
             
+            logger.info(f"Found user: id={user.id}, tier={user.current_tier}")
             user_id = user.id
-            tier = user.current_tier  # Use user's current tier
+            tier = user.current_tier or 3  # Use user's current tier, default to 3
             # Create payment record
             payment = Payment(
                 user_id=user_id,
@@ -265,7 +267,9 @@ async def handle_payment_captured(data):
             logger.info(f"Payment captured and processed for user {telegram_id}")
     
     except Exception as e:
+        import traceback
         logger.error(f"Error handling payment.captured: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
 
 async def handle_subscription_authenticated(data):
