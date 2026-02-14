@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, and_
 from backend.app.db.session import async_session
 from backend.app.db.models import Membership, User, Channel, UpsellAttempt
-from backend.app.bot.bot import bot
+from backend.bot.bot import bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import asyncio
 import logging
