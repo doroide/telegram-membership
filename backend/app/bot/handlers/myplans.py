@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select
 from datetime import datetime, timezone
 
@@ -9,26 +9,37 @@ from backend.app.db.models import Membership, Channel
 router = Router()
 
 
+# =========================
+# /myplans COMMAND
+# =========================
+
 @router.message(F.text == "/myplans")
 async def myplans_command(message: Message):
     await show_myplans(message)
 
 
 @router.callback_query(F.data == "myplans")
-async def myplans_callback(callback):
+async def myplans_callback(callback: CallbackQuery):
     await show_myplans(callback.message)
     await callback.answer()
 
 
+# =========================
+# SHOW USER PLANS
+# =========================
+
 async def show_myplans(message: Message):
-    user_id = message.from_user.id
+    telegram_id = message.from_user.id
     now = datetime.now(timezone.utc)
 
     async with async_session() as session:
         result = await session.execute(
             select(Membership, Channel)
             .join(Channel, Channel.id == Membership.channel_id)
-            .where(Membership.is_active == True)
+            .where(
+                Membership.is_active == True,
+                Membership.user.has(telegram_id=telegram_id)
+            )
             .order_by(Membership.expiry_date.asc())
         )
         rows = result.all()
@@ -38,7 +49,7 @@ async def show_myplans(message: Message):
         return
 
     for membership, channel in rows:
-        days_left = (membership.expiry_date - now).days
+        days_left = max((membership.expiry_date - now).days, 0)
         expiry_str = membership.expiry_date.strftime("%d %b %Y")
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -53,6 +64,30 @@ async def show_myplans(message: Message):
         await message.answer(
             f"📺 <b>{channel.name}</b>\n"
             f"⏳ Expires on: {expiry_str}\n"
-            f"📅 Days left: {max(days_left, 0)}",
+            f"📅 Days left: {days_left}",
             reply_markup=keyboard
         )
+
+
+# =========================
+# RENEW BUTTON HANDLER
+# =========================
+
+@router.callback_query(F.data.startswith("renew_"))
+async def renew_from_myplans(callback: CallbackQuery):
+    channel_id = int(callback.data.split("_")[1])
+
+    # Redirect user to plan selection (reuse existing flow)
+    await callback.message.answer(
+        "🔁 <b>Select a plan to renew:</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="View Plans",
+                    callback_data=f"userch_{channel_id}"
+                )
+            ]
+        ])
+    )
+
+    await callback.answer()
