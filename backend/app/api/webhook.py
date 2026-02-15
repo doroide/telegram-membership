@@ -18,8 +18,11 @@ RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
 ADMIN_USERNAME = "Doroide47"
 
 
+# ======================================================
+# SIGNATURE VERIFICATION
+# ======================================================
+
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
-    """Verify Razorpay webhook signature"""
     expected_signature = hmac.new(
         RAZORPAY_WEBHOOK_SECRET.encode(),
         payload,
@@ -28,22 +31,24 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected_signature, signature)
 
 
+# ======================================================
+# MAIN WEBHOOK ENDPOINT
+# ======================================================
+
 @router.post("/webhook")
 async def razorpay_webhook(request: Request):
-    """Handle Razorpay webhook events"""
     try:
         payload = await request.body()
         signature = request.headers.get("X-Razorpay-Signature")
-        
+
         if not verify_webhook_signature(payload, signature):
-            logger.error("Invalid webhook signature")
             raise HTTPException(status_code=400, detail="Invalid signature")
-        
+
         data = await request.json()
         event = data.get("event")
-        
-        logger.info(f"Received webhook event: {event}")
-        
+
+        logger.info(f"Razorpay webhook event: {event}")
+
         if event == "payment.captured":
             await handle_payment_captured(data)
         elif event == "subscription.authenticated":
@@ -54,69 +59,69 @@ async def razorpay_webhook(request: Request):
             await handle_subscription_halted(data)
         elif event == "subscription.cancelled":
             await handle_subscription_cancelled(data)
-        
-        return {"status": "ok"}
-    
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
+        return {"status": "ok"}
+
+    except Exception as e:
+        logger.exception("Webhook processing failed")
+        raise HTTPException(status_code=500, detail="Webhook error")
+
+
+# ======================================================
+# PAYMENT CAPTURED (ONE-TIME PAYMENT)
+# ======================================================
 
 async def handle_payment_captured(data):
-    """Handle one-time payment"""
     try:
         payment_entity = data.get("payload", {}).get("payment", {}).get("entity", {})
         payment_id = payment_entity.get("id")
         amount = payment_entity.get("amount", 0) / 100
         notes = payment_entity.get("notes", {})
-        
+
         telegram_id = int(notes.get("telegram_id"))
         channel_id = int(notes.get("channel_id"))
         validity_days = int(notes.get("validity_days"))
-        
+
+        now = datetime.now(timezone.utc)
+
         async with async_session() as db:
-            # Get user
-            result = await db.execute(
+            # Fetch user
+            user = await db.scalar(
                 select(User).where(User.telegram_id == telegram_id)
             )
-            user = result.scalar_one_or_none()
             if not user:
+                logger.error("User not found for telegram_id=%s", telegram_id)
                 return
-            
-            # Create payment
-            payment = Payment(
+
+            # Save payment
+            db.add(Payment(
                 user_id=user.id,
                 channel_id=channel_id,
                 amount=amount,
                 payment_id=payment_id,
                 status="captured"
-            )
-            db.add(payment)
-            
-            # Get or create membership
-            result = await db.execute(
-                select(Membership).where(
+            ))
+
+            # Fetch latest membership (active or expired)
+            membership = await db.scalar(
+                select(Membership)
+                .where(
                     Membership.user_id == user.id,
-                    Membership.channel_id == channel_id,
-                    Membership.is_active == True
+                    Membership.channel_id == channel_id
                 )
+                .order_by(Membership.expiry_date.desc())
             )
-            membership = result.scalar_one_or_none()
-            
-            now = datetime.now(timezone.utc)
-            
+
+            # -------------------------------
+            # MEMBERSHIP LOGIC (FIXED)
+            # -------------------------------
             if membership and membership.expiry_date > now:
-                membership.expiry_date = membership.expiry_date + timedelta(days=validity_days)
+                # Active → extend
+                membership.expiry_date += timedelta(days=validity_days)
                 membership.amount_paid += amount
             else:
-                if membership:
-                    membership.tier = user.current_tier
-                    membership.validity_days = validity_days
-                    membership.amount_paid = amount
-                    membership.start_date = now
-                    membership.expiry_date = now + timedelta(days=validity_days)
-                    membership.is_active = True
-                else:
+                # Expired or new → reset clean
+                if not membership:
                     membership = Membership(
                         user_id=user.id,
                         channel_id=channel_id,
@@ -128,52 +133,62 @@ async def handle_payment_captured(data):
                         is_active=True
                     )
                     db.add(membership)
-            
+                else:
+                    membership.start_date = now
+                    membership.expiry_date = now + timedelta(days=validity_days)
+                    membership.amount_paid = amount
+                    membership.is_active = True
+
             user.highest_amount_paid = max(user.highest_amount_paid or 0, amount)
             await db.commit()
-            
-            # Get channel
+
             channel = await db.get(Channel, channel_id)
             expiry_str = membership.expiry_date.strftime("%d %b %Y")
-            
-            # Send invite link (merged with success message)
+
+            # -------------------------------
+            # SEND INVITE LINK
+            # -------------------------------
             try:
-                invite_link = await bot.create_chat_invite_link(
+                invite = await bot.create_chat_invite_link(
                     int(channel.telegram_chat_id),
                     member_limit=1,
-                    expire_date=datetime.now(timezone.utc) + timedelta(minutes=10)
+                    expire_date=now + timedelta(minutes=10)
                 )
-                
+
                 await bot.send_message(
                     telegram_id,
                     f"✅ <b>Payment Successful!</b>\n\n"
                     f"💳 Amount: ₹{amount:.0f}\n"
                     f"📺 Channel: {channel.name}\n"
                     f"⏰ Valid until: {expiry_str}\n\n"
-                    f"🔗 <b>Your Invite Link:</b>\n"
-                    f"{invite_link.invite_link}\n\n"
+                    f"🔗 <b>Your Invite Link:</b>\n{invite.invite_link}\n\n"
                     f"⚠️ Link expires in 10 minutes",
                     parse_mode="HTML"
                 )
             except Exception as e:
-                logger.error(f"Invite link error: {e}")
+                logger.error("Invite link failed: %s", e)
                 await bot.send_message(
                     telegram_id,
-                    f"✅ <b>Payment Successful!</b>\n\n"
-                    f"💳 Amount: ₹{amount:.0f}\n"
-                    f"📺 Channel: {channel.name}\n"
+                    f"✅ Payment successful for <b>{channel.name}</b>\n"
                     f"⏰ Valid until: {expiry_str}\n\n"
-                    f"❌ Error creating invite link. Contact admin.",
+                    f"❌ Could not generate invite link. Contact admin.",
                     parse_mode="HTML"
                 )
-            
-            # Auto-renewal offer (NO Maybe Later button)
+
+            # -------------------------------
+            # AUTO-RENEW OFFER
+            # -------------------------------
             await asyncio.sleep(2)
-            
+
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 Enable Auto-Renewal", callback_data=f"setup_autorenew_{user.id}_{channel_id}_{validity_days}")]
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Enable Auto-Renewal",
+                        callback_data=f"setup_autorenew_{user.id}_{channel_id}_{validity_days}"
+                    )
+                ]
             ])
-            
+
             await bot.send_message(
                 telegram_id,
                 f"💰 <b>Never Miss Access!</b>\n\n"
@@ -184,113 +199,101 @@ async def handle_payment_captured(data):
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
-    
-    except Exception as e:
-        logger.error(f"Error in payment handler: {e}")
 
+    except Exception as e:
+        logger.exception("Payment capture handler failed")
+
+
+# ======================================================
+# SUBSCRIPTION EVENTS
+# ======================================================
 
 async def handle_subscription_authenticated(data):
-    """Handle auto-renewal setup"""
     try:
-        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
-        subscription_id = subscription_entity.get("id")
-        notes = subscription_entity.get("notes", {})
-        
-        user_id = int(notes.get("user_id"))
-        channel_id = int(notes.get("channel_id"))
-        
+        entity = data["payload"]["subscription"]["entity"]
+        subscription_id = entity["id"]
+        notes = entity.get("notes", {})
+
+        user_id = int(notes["user_id"])
+        channel_id = int(notes["channel_id"])
+
         async with async_session() as db:
-            result = await db.execute(
+            membership = await db.scalar(
                 select(Membership).where(
                     Membership.user_id == user_id,
-                    Membership.channel_id == channel_id,
-                    Membership.is_active == True
+                    Membership.channel_id == channel_id
                 )
             )
-            membership = result.scalar_one_or_none()
-            
             if membership:
                 membership.auto_renew_enabled = True
                 membership.razorpay_subscription_id = subscription_id
                 membership.subscription_status = "active"
                 await db.commit()
-    
-    except Exception as e:
-        logger.error(f"Error in subscription handler: {e}")
+
+    except Exception:
+        logger.exception("Subscription authenticated error")
 
 
 async def handle_subscription_charged(data):
-    """Handle monthly renewal - SILENT"""
     try:
-        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
-        subscription_id = subscription_entity.get("id")
-        
+        subscription_id = data["payload"]["subscription"]["entity"]["id"]
+
         async with async_session() as db:
-            result = await db.execute(
+            membership = await db.scalar(
                 select(Membership).where(
                     Membership.razorpay_subscription_id == subscription_id
                 )
             )
-            membership = result.scalar_one_or_none()
-            
             if membership:
-                membership.expiry_date = membership.expiry_date + timedelta(days=membership.validity_days)
+                membership.expiry_date += timedelta(days=membership.validity_days)
                 await db.commit()
-    
-    except Exception as e:
-        logger.error(f"Error in renewal handler: {e}")
+
+    except Exception:
+        logger.exception("Subscription charged error")
 
 
 async def handle_subscription_halted(data):
-    """Handle payment failure"""
     try:
-        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
-        subscription_id = subscription_entity.get("id")
-        
+        subscription_id = data["payload"]["subscription"]["entity"]["id"]
+
         async with async_session() as db:
-            result = await db.execute(
+            membership = await db.scalar(
                 select(Membership).where(
                     Membership.razorpay_subscription_id == subscription_id
                 )
             )
-            membership = result.scalar_one_or_none()
-            
             if membership:
                 membership.subscription_status = "halted"
                 await db.commit()
-                
+
                 user = await db.get(User, membership.user_id)
                 channel = await db.get(Channel, membership.channel_id)
-                
+
                 await bot.send_message(
                     user.telegram_id,
-                    f"⚠️ Auto-renewal payment failed for {channel.name}\n\n"
+                    f"⚠️ Auto-renewal payment failed for <b>{channel.name}</b>.\n"
                     f"Please check your payment method.",
                     parse_mode="HTML"
                 )
-    
-    except Exception as e:
-        logger.error(f"Error in halted handler: {e}")
+
+    except Exception:
+        logger.exception("Subscription halted error")
 
 
 async def handle_subscription_cancelled(data):
-    """Handle cancellation"""
     try:
-        subscription_entity = data.get("payload", {}).get("subscription", {}).get("entity", {})
-        subscription_id = subscription_entity.get("id")
-        
+        subscription_id = data["payload"]["subscription"]["entity"]["id"]
+
         async with async_session() as db:
-            result = await db.execute(
+            membership = await db.scalar(
                 select(Membership).where(
                     Membership.razorpay_subscription_id == subscription_id
                 )
             )
-            membership = result.scalar_one_or_none()
-            
             if membership:
                 membership.auto_renew_enabled = False
                 membership.subscription_status = "cancelled"
                 await db.commit()
-    
-    except Exception as e:
-        logger.error(f"Error in cancel handler: {e}")
+
+    except Exception:
+        logger.exception("Subscription cancelled error")
