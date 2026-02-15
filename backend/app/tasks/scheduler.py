@@ -3,6 +3,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from backend.app.tasks.expiry_checker import run_expiry_check
 from backend.app.tasks.reminder_worker import run_reminder_check
+from backend.app.tasks.reports import send_daily_report, send_weekly_report
 
 
 scheduler = AsyncIOScheduler()
@@ -29,6 +30,23 @@ def start_scheduler():
         name="Send membership reminders",
         replace_existing=True
     )
+
+        # 📊 Daily report – 9 AM IST (03:30 UTC)
+    scheduler.add_job(
+        send_daily_report,
+        CronTrigger(hour=3, minute=30),
+        id="daily_report",
+        replace_existing=True
+    )
+
+    # 📊 Weekly report – Monday 9 AM IST
+    scheduler.add_job(
+        send_weekly_report,
+        CronTrigger(day_of_week="mon", hour=3, minute=30),
+        id="weekly_report",
+        replace_existing=True
+    )
+
     
     scheduler.start()
     print("✅ Scheduler started:")
