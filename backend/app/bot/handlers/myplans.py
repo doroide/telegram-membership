@@ -1,103 +1,65 @@
 from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message
 from sqlalchemy import select
 from datetime import datetime, timezone
-
 from backend.app.db.session import async_session
-from backend.app.db.models import Membership, Channel, User
+from backend.app.db.models import User, Membership, Channel
 
 router = Router()
 
-
-# =========================
-# /myplans COMMAND
-# =========================
-
-@router.message(Command("myplans"))
-async def myplans_command(message: Message):
-    await show_myplans(message)
-
-
-# =========================
-# MY PLANS BUTTON CALLBACK
-# (matches start.py callback_data="my_plans")
-# =========================
-
-@router.callback_query(F.data == "my_plans")
-async def myplans_callback(callback: CallbackQuery):
-    await show_myplans(callback.message)
-    await callback.answer()
-
-
-# =========================
-# SHOW USER PLANS
-# =========================
-
-async def show_myplans(message: Message):
+@router.message(F.text == "/myplans")
+async def my_plans(message: Message):
     telegram_id = message.from_user.id
-    now = datetime.now(timezone.utc)
-
+    
     async with async_session() as session:
+        # Debug: Check if user exists
         result = await session.execute(
-            select(Membership, Channel)
-            .join(Channel, Channel.id == Membership.channel_id)
-            .join(User, User.id == Membership.user_id)
-            .where(
-                Membership.is_active == True,
-                User.telegram_id == telegram_id
-            )
-            .order_by(Membership.expiry_date.asc())
+            select(User).where(User.telegram_id == telegram_id)
         )
-        rows = result.all()
-
-    if not rows:
-        await message.answer("📭 You have no active subscriptions.")
-        return
-
-    for membership, channel in rows:
-        days_left = max((membership.expiry_date - now).days, 0)
-        expiry_str = membership.expiry_date.strftime("%d %b %Y")
-
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🔁 Renew",
-                        callback_data=f"renew_{channel.id}"
-                    )
-                ]
-            ]
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer(f"Debug: User not found with telegram_id {telegram_id}")
+            return
+        
+        # Debug: Get ALL memberships (even inactive)
+        result = await session.execute(
+            select(Membership).where(Membership.user_id == user.id)
         )
-
+        all_memberships = result.scalars().all()
+        
         await message.answer(
-            f"📺 <b>{channel.name}</b>\n"
-            f"⏳ Expires on: {expiry_str}\n"
-            f"📅 Days left: {days_left}",
-            reply_markup=keyboard
+            f"Debug Info:\n"
+            f"User ID: {user.id}\n"
+            f"Telegram ID: {telegram_id}\n"
+            f"Total memberships: {len(all_memberships)}\n"
+            f"Active: {sum(1 for m in all_memberships if m.is_active)}"
         )
-
-
-# =========================
-# RENEW BUTTON HANDLER
-# =========================
-
-@router.callback_query(F.data.startswith("renew_"))
-async def renew_from_myplans(callback: CallbackQuery):
-    channel_id = int(callback.data.split("_")[1])
-
-    await callback.message.answer(
-        "🔁 <b>Select a plan to renew:</b>",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="View Plans",
-                        callback_data=f"userch_{channel_id}"
-                    )
-                ]
-            ]
+        
+        # Get active memberships
+        result = await session.execute(
+            select(Membership)
+            .where(Membership.user_id == user.id)
+            .where(Membership.is_active == True)
         )
-    )
-
-    await callback.answer()
+        memberships = result.scalars().all()
+        
+        if not memberships:
+            await message.answer("No active plans.")
+            return
+        
+        text = "📋 *Your Active Plans*\n\n"
+        
+        for m in memberships:
+            channel = await session.get(Channel, m.channel_id)
+            
+            now = datetime.now(timezone.utc)
+            days_left = (m.expiry_date - now).days
+            expiry = f"{m.expiry_date.date()} ({days_left} days)"
+            
+            text += (
+                f"📺 {channel.name}\n"
+                f"⏰ Expiry: {expiry}\n\n"
+            )
+        
+        await message.answer(text, parse_mode="Markdown")
