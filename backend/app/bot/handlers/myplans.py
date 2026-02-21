@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy import select
 from datetime import datetime, timezone
 from backend.app.db.session import async_session
@@ -12,29 +12,15 @@ async def my_plans(message: Message):
     telegram_id = message.from_user.id
     
     async with async_session() as session:
-        # Debug: Check if user exists
+        # Get user
         result = await session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
         
         if not user:
-            await message.answer(f"Debug: User not found with telegram_id {telegram_id}")
+            await message.answer("No active plans.")
             return
-        
-        # Debug: Get ALL memberships (even inactive)
-        result = await session.execute(
-            select(Membership).where(Membership.user_id == user.id)
-        )
-        all_memberships = result.scalars().all()
-        
-        await message.answer(
-            f"Debug Info:\n"
-            f"User ID: {user.id}\n"
-            f"Telegram ID: {telegram_id}\n"
-            f"Total memberships: {len(all_memberships)}\n"
-            f"Active: {sum(1 for m in all_memberships if m.is_active)}"
-        )
         
         # Get active memberships
         result = await session.execute(
@@ -63,3 +49,10 @@ async def my_plans(message: Message):
             )
         
         await message.answer(text, parse_mode="Markdown")
+
+
+@router.callback_query(F.data == "my_plans")
+async def my_plans_button(callback: CallbackQuery):
+    """Handle My Plans button click"""
+    await callback.answer()
+    await my_plans(callback.message)
