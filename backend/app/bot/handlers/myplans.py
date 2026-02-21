@@ -19,8 +19,14 @@ async def my_plans(message: Message):
         user = result.scalar_one_or_none()
         
         if not user:
-            await message.answer("No active plans.")
+            await message.answer(f"❌ User not found (telegram_id: {telegram_id})")
             return
+        
+        # Get ALL memberships for debugging
+        all_result = await session.execute(
+            select(Membership).where(Membership.user_id == user.id)
+        )
+        all_memberships = all_result.scalars().all()
         
         # Get active memberships
         result = await session.execute(
@@ -29,6 +35,22 @@ async def my_plans(message: Message):
             .where(Membership.is_active == True)
         )
         memberships = result.scalars().all()
+        
+        # Debug output
+        debug = (
+            f"🔍 Debug:\n"
+            f"User ID: {user.id}\n"
+            f"Telegram ID: {telegram_id}\n"
+            f"Total memberships: {len(all_memberships)}\n"
+            f"Active: {len(memberships)}\n"
+        )
+        
+        if all_memberships:
+            debug += "\nAll memberships:\n"
+            for m in all_memberships:
+                debug += f"- Channel {m.channel_id}: active={m.is_active}, expiry={m.expiry_date}\n"
+        
+        await message.answer(debug)
         
         if not memberships:
             await message.answer("No active plans.")
