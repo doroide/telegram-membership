@@ -50,25 +50,32 @@ async def my_plans(message: Message):
             for m in all_memberships:
                 debug += f"- Channel {m.channel_id}: active={m.is_active}, expiry={m.expiry_date}\n"
         
-        await message.answer(debug)
+        # Remove debug output for production
+        # await message.answer(debug)
         
         if not memberships:
             await message.answer("No active plans.")
             return
         
-        text = "📋 *Your Active Plans*\n\n"
+        text = "📋 *Your Subscriptions*\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         for m in memberships:
             channel = await session.get(Channel, m.channel_id)
             
             now = datetime.now(timezone.utc)
             days_left = (m.expiry_date - now).days
-            expiry = f"{m.expiry_date.date()} ({days_left} days)"
+            expiry_date = m.expiry_date.strftime("%d %b %Y")
             
-            text += (
-                f"📺 {channel.name}\n"
-                f"⏰ Expiry: {expiry}\n\n"
-            )
+            auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+            
+            text += f"📺 *{channel.name}*\n"
+            text += f"   ├ 📅 Expires: {expiry_date}\n"
+            text += f"   ├ ⏳ {days_left} days remaining\n"
+            text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
+            text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        text += f"✅ *{len(memberships)} active plan{'s' if len(memberships) > 1 else ''}*"
         
         await message.answer(text, parse_mode="Markdown")
 
@@ -103,18 +110,24 @@ async def my_plans_button(callback: CallbackQuery):
             await callback.message.answer("No active plans.")
             return
         
-        text = "📋 *Your Active Plans*\n\n"
+        text = "📋 *Your Subscriptions*\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         for m in memberships:
             channel = await session.get(Channel, m.channel_id)
             
             now = datetime.now(timezone.utc)
             days_left = (m.expiry_date - now).days
-            expiry = f"{m.expiry_date.date()} ({days_left} days)"
+            expiry_date = m.expiry_date.strftime("%d %b %Y")
             
-            text += (
-                f"📺 {channel.name}\n"
-                f"⏰ Expiry: {expiry}\n\n"
-            )
+            auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+            
+            text += f"📺 *{channel.name}*\n"
+            text += f"   ├ 📅 Expires: {expiry_date}\n"
+            text += f"   ├ ⏳ {days_left} days remaining\n"
+            text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
+            text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        text += f"✅ *{len(memberships)} active plan{'s' if len(memberships) > 1 else ''}*"
         
         await callback.message.answer(text, parse_mode="Markdown")
