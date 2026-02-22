@@ -1,9 +1,9 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
-from sqlalchemy import select
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import select, and_
 from datetime import datetime, timezone
 from backend.app.db.session import async_session
-from backend.app.db.models import User, Membership, Channel
+from backend.app.db.models import User, Membership, Channel, UpsellAttempt
 
 router = Router()
 
@@ -22,12 +22,6 @@ async def my_plans(message: Message):
             await message.answer(f"❌ User not found (telegram_id: {telegram_id})")
             return
         
-        # Get ALL memberships for debugging
-        all_result = await session.execute(
-            select(Membership).where(Membership.user_id == user.id)
-        )
-        all_memberships = all_result.scalars().all()
-        
         # Get active memberships
         result = await session.execute(
             select(Membership)
@@ -35,23 +29,6 @@ async def my_plans(message: Message):
             .where(Membership.is_active == True)
         )
         memberships = result.scalars().all()
-        
-        # Debug output
-        debug = (
-            f"🔍 Debug:\n"
-            f"User ID: {user.id}\n"
-            f"Telegram ID: {telegram_id}\n"
-            f"Total memberships: {len(all_memberships)}\n"
-            f"Active: {len(memberships)}\n"
-        )
-        
-        if all_memberships:
-            debug += "\nAll memberships:\n"
-            for m in all_memberships:
-                debug += f"- Channel {m.channel_id}: active={m.is_active}, expiry={m.expiry_date}\n"
-        
-        # Remove debug output for production
-        # await message.answer(debug)
         
         if not memberships:
             await message.answer("No active plans.")
@@ -78,6 +55,31 @@ async def my_plans(message: Message):
         text += f"✅ *{len(memberships)} active plan{'s' if len(memberships) > 1 else ''}*"
         
         await message.answer(text, parse_mode="Markdown")
+        
+        # Check for available upsell offers
+        result = await session.execute(
+            select(UpsellAttempt).where(
+                and_(
+                    UpsellAttempt.user_id == user.id,
+                    UpsellAttempt.accepted == False
+                )
+            )
+        )
+        upsells = result.scalars().all()
+        
+        if upsells:
+            offers_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"🎁 View {len(upsells)} Special Offer{'s' if len(upsells) > 1 else ''}",
+                    callback_data="view_all_upsells"
+                )]
+            ])
+            
+            await message.answer(
+                f"💎 *You have {len(upsells)} exclusive upgrade offer{'s' if len(upsells) > 1 else ''} available!*",
+                parse_mode="Markdown",
+                reply_markup=offers_keyboard
+            )
 
 
 @router.callback_query(F.data == "my_plans")
@@ -131,3 +133,103 @@ async def my_plans_button(callback: CallbackQuery):
         text += f"✅ *{len(memberships)} active plan{'s' if len(memberships) > 1 else ''}*"
         
         await callback.message.answer(text, parse_mode="Markdown")
+        
+        # Check for available upsell offers
+        result = await session.execute(
+            select(UpsellAttempt).where(
+                and_(
+                    UpsellAttempt.user_id == user.id,
+                    UpsellAttempt.accepted == False
+                )
+            )
+        )
+        upsells = result.scalars().all()
+        
+        if upsells:
+            offers_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"🎁 View {len(upsells)} Special Offer{'s' if len(upsells) > 1 else ''}",
+                    callback_data="view_all_upsells"
+                )]
+            ])
+            
+            await callback.message.answer(
+                f"💎 *You have {len(upsells)} exclusive upgrade offer{'s' if len(upsells) > 1 else ''} available!*",
+                parse_mode="Markdown",
+                reply_markup=offers_keyboard
+            )
+
+
+@router.callback_query(F.data == "view_all_upsells")
+async def view_all_upsells(callback: CallbackQuery):
+    """Show all available upsell offers"""
+    await callback.answer()
+    
+    async with async_session() as session:
+        # Get user
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        
+        # Get all upsells
+        result = await session.execute(
+            select(UpsellAttempt).where(
+                and_(
+                    UpsellAttempt.user_id == user.id,
+                    UpsellAttempt.accepted == False
+                )
+            )
+        )
+        upsells = result.scalars().all()
+        
+        if not upsells:
+            await callback.message.answer("😊 No special offers available right now.")
+            return
+        
+        # Build offers message
+        msg = "🎁 *Your Exclusive Upgrade Offers*\n\n"
+        msg += "Save big by upgrading to longer plans!\n\n"
+        msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        keyboard_buttons = []
+        
+        for upsell in upsells:
+            # Get channel
+            channel = await session.get(Channel, upsell.channel_id)
+            
+            # Format durations
+            duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
+            from_duration = duration_map.get(upsell.from_validity_days, f"{upsell.from_validity_days} days")
+            to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
+            
+            original_price = upsell.to_amount / 0.8  # Since 20% off
+            
+            msg += f"📺 *{channel.name}*\n"
+            msg += f"Upgrade: {from_duration} → {to_duration}\n"
+            msg += f"💰 ~~₹{original_price:.0f}~~ → ₹{upsell.to_amount:.0f}\n"
+            msg += f"💸 Save ₹{upsell.discount_amount:.0f} (20% OFF)\n\n"
+            msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
+            
+            # Add button
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=f"🎁 Upgrade {channel.name}",
+                    callback_data=f"upsell_accept_{upsell.id}"
+                )
+            ])
+        
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="❌ Close", callback_data="close_upsells")
+        ])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        
+        await callback.message.answer(msg, parse_mode="Markdown", reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "close_upsells")
+async def close_upsells(callback: CallbackQuery):
+    """Close upsells message"""
+    await callback.answer("You can view offers anytime from /myplans")
+    await callback.message.delete()
