@@ -125,3 +125,7 @@ class UpsellAttempt(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="upsell_attempts")
+
+    is_manual = Column(Boolean, default=False)  # True if created by admin
+    created_by_admin = Column(Integer, nullable=True)  # Admin user ID
+    custom_message = Column(Text, nullable=True)  # Custom message from admin

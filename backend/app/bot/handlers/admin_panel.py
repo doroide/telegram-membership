@@ -29,6 +29,7 @@ async def admin_panel(message: Message):
         [InlineKeyboardButton(text="➕ Add User Manually", callback_data="admin_add_user")],
         [InlineKeyboardButton(text="📺 View All Channels", callback_data="admin_view_channels")],
         [InlineKeyboardButton(text="🎁 Upsell Stats", callback_data="upsell_stats")],
+        [InlineKeyboardButton(text="🎁 Give Offers", callback_data="admin_give_offers")],
         [InlineKeyboardButton(text="➕ Add New Channel", callback_data="admin_add_channel")],
         [InlineKeyboardButton(text="💰 View Payments", callback_data="admin_view_payments")],
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],

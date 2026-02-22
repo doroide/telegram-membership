@@ -29,6 +29,8 @@ from backend.app.bot.handlers.upsell_stats import router as upsell_stats_router
 from backend.app.bot.handlers.admin_panel import router as admin_panel_router
 from backend.app.bot.handlers.analytics import router as analytics_router
 from backend.app.bot.handlers.autorenew import router as autorenew_router
+from backend.app.bot.handlers.admin_offers 
+import router as admin_offers_router`
 
 from backend.app.db.base import Base
 from backend.app.db.session import engine
@@ -50,6 +52,7 @@ dp.include_router(stats_router)
 dp.include_router(analytics_router)
 dp.include_router(export_router)
 dp.include_router(admin_panel_router)
+p.include_router(admin_offers_router)
 
 print("✅ Aiogram routers registered")
 

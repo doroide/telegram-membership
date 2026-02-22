@@ -55,31 +55,6 @@ async def my_plans(message: Message):
         text += f"✅ *{len(memberships)} active plan{'s' if len(memberships) > 1 else ''}*"
         
         await message.answer(text, parse_mode="Markdown")
-        
-        # Check for available upsell offers
-        result = await session.execute(
-            select(UpsellAttempt).where(
-                and_(
-                    UpsellAttempt.user_id == user.id,
-                    UpsellAttempt.accepted == False
-                )
-            )
-        )
-        upsells = result.scalars().all()
-        
-        if upsells:
-            offers_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=f"🎁 View {len(upsells)} Special Offer{'s' if len(upsells) > 1 else ''}",
-                    callback_data="view_all_upsells"
-                )]
-            ])
-            
-            await message.answer(
-                f"💎 *You have {len(upsells)} exclusive upgrade offer{'s' if len(upsells) > 1 else ''} available!*",
-                parse_mode="Markdown",
-                reply_markup=offers_keyboard
-            )
 
 
 @router.callback_query(F.data == "my_plans")
@@ -133,36 +108,11 @@ async def my_plans_button(callback: CallbackQuery):
         text += f"✅ *{len(memberships)} active plan{'s' if len(memberships) > 1 else ''}*"
         
         await callback.message.answer(text, parse_mode="Markdown")
-        
-        # Check for available upsell offers
-        result = await session.execute(
-            select(UpsellAttempt).where(
-                and_(
-                    UpsellAttempt.user_id == user.id,
-                    UpsellAttempt.accepted == False
-                )
-            )
-        )
-        upsells = result.scalars().all()
-        
-        if upsells:
-            offers_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text=f"🎁 View {len(upsells)} Special Offer{'s' if len(upsells) > 1 else ''}",
-                    callback_data="view_all_upsells"
-                )]
-            ])
-            
-            await callback.message.answer(
-                f"💎 *You have {len(upsells)} exclusive upgrade offer{'s' if len(upsells) > 1 else ''} available!*",
-                parse_mode="Markdown",
-                reply_markup=offers_keyboard
-            )
 
 
 @router.callback_query(F.data == "view_all_upsells")
 async def view_all_upsells(callback: CallbackQuery):
-    """Show all available upsell offers"""
+    """Show all available upsell offers (auto + manual)"""
     await callback.answer()
     
     async with async_session() as session:
@@ -172,7 +122,11 @@ async def view_all_upsells(callback: CallbackQuery):
         )
         user = result.scalar_one_or_none()
         
-        # Get all upsells
+        if not user:
+            await callback.message.answer("User not found.")
+            return
+        
+        # Get all upsells (both manual and automatic)
         result = await session.execute(
             select(UpsellAttempt).where(
                 and_(
@@ -188,8 +142,7 @@ async def view_all_upsells(callback: CallbackQuery):
             return
         
         # Build offers message
-        msg = "🎁 *Your Exclusive Upgrade Offers*\n\n"
-        msg += "Save big by upgrading to longer plans!\n\n"
+        msg = "🎁 *Your Exclusive Offers*\n\n"
         msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         keyboard_buttons = []
@@ -203,18 +156,27 @@ async def view_all_upsells(callback: CallbackQuery):
             from_duration = duration_map.get(upsell.from_validity_days, f"{upsell.from_validity_days} days")
             to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
             
-            original_price = upsell.to_amount / 0.8  # Since 20% off
+            original_price = upsell.to_amount / 0.8  # Calculate from 20% discount
+            discount_pct = (upsell.discount_amount / original_price) * 100
+            
+            # Show custom message if manual offer
+            if upsell.is_manual and upsell.custom_message:
+                msg += f"✨ *{upsell.custom_message}*\n\n"
             
             msg += f"📺 *{channel.name}*\n"
             msg += f"Upgrade: {from_duration} → {to_duration}\n"
             msg += f"💰 ~~₹{original_price:.0f}~~ → ₹{upsell.to_amount:.0f}\n"
-            msg += f"💸 Save ₹{upsell.discount_amount:.0f} (20% OFF)\n\n"
-            msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"💸 Save ₹{upsell.discount_amount:.0f} ({discount_pct:.0f}% OFF)\n"
+            
+            if upsell.is_manual:
+                msg += f"🎁 *Special admin offer!*\n"
+            
+            msg += "\n━━━━━━━━━━━━━━━━━━━━\n\n"
             
             # Add button
             keyboard_buttons.append([
                 InlineKeyboardButton(
-                    text=f"🎁 Upgrade {channel.name}",
+                    text=f"✅ Accept - {channel.name}",
                     callback_data=f"upsell_accept_{upsell.id}"
                 )
             ])
