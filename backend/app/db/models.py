@@ -14,60 +14,48 @@ from backend.app.db.session import Base
 
 
 class User(Base):
-    """User model for storing user information"""
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # 🔥 FIX: Telegram IDs can exceed int32 → MUST be BigInteger
+    # ✅ FIX: Telegram IDs can exceed int32
     telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
 
     username = Column(String(255))
     full_name = Column(String(255))
 
-    current_tier = Column(Integer, default=3)  # Default tier 3
+    current_tier = Column(Integer, default=3)
     is_lifetime_member = Column(Boolean, default=False)
     lifetime_amount = Column(Numeric(10, 2), default=0)
 
-    channel_1_tier = Column(Integer)  # Special tier for channel 1
+    channel_1_tier = Column(Integer)
     highest_amount_paid = Column(Numeric(10, 2), default=0)
 
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    # Relationships
     memberships = relationship("Membership", back_populates="user")
     payments = relationship("Payment", back_populates="user")
     upsell_attempts = relationship("UpsellAttempt", back_populates="user")
 
 
 class Channel(Base):
-    """Channel model for storing channel information"""
     __tablename__ = "channels"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
 
-    # Telegram chat IDs can also be large → keep as string (safe)
     telegram_chat_id = Column(String(255), unique=True, nullable=False)
 
     is_public = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
 
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    # Relationships
     memberships = relationship("Membership", back_populates="channel")
     payments = relationship("Payment", back_populates="channel")
 
 
 class Membership(Base):
-    """Membership model for storing user subscriptions"""
     __tablename__ = "memberships"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -84,29 +72,22 @@ class Membership(Base):
 
     is_active = Column(Boolean, default=True)
 
-    # Auto-renewal fields
     auto_renew_enabled = Column(Boolean, default=False)
     razorpay_subscription_id = Column(String(255))
-    subscription_status = Column(String(50))  # active, halted, cancelled, completed
-    auto_renew_method = Column(String(50))  # upi, card, netbanking
+    subscription_status = Column(String(50))
+    auto_renew_method = Column(String(50))
 
-    # Reminder tracking
     reminded_7d = Column(Boolean, default=False)
     reminded_1d = Column(Boolean, default=False)
     reminded_expired = Column(Boolean, default=False)
 
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    # Relationships
     user = relationship("User", back_populates="memberships")
     channel = relationship("Channel", back_populates="memberships")
 
 
 class Payment(Base):
-    """Payment model for storing payment transactions"""
     __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -116,20 +97,15 @@ class Payment(Base):
 
     amount = Column(Numeric(10, 2), nullable=False)
     payment_id = Column(String(255), unique=True, nullable=False)
-    status = Column(String(50), nullable=False)  # pending, captured, failed, refunded
+    status = Column(String(50), nullable=False)
 
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    # Relationships
     user = relationship("User", back_populates="payments")
     channel = relationship("Channel", back_populates="payments")
 
 
 class UpsellAttempt(Base):
-    """Track upselling attempts and conversions"""
     __tablename__ = "upsell_attempts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -146,10 +122,6 @@ class UpsellAttempt(Base):
 
     accepted = Column(Boolean, default=False, nullable=False)
 
-    created_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    # Relationship
     user = relationship("User", back_populates="upsell_attempts")

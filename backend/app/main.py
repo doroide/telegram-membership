@@ -10,6 +10,7 @@ app = FastAPI()
 # ======================================================
 from backend.bot.bot import bot, dp
 
+
 # ======================================================
 # IMPORT HANDLERS
 # ======================================================
@@ -61,7 +62,7 @@ app.include_router(razorpay_router, prefix="/api")
 # ======================================================
 # TELEGRAM WEBHOOK
 # ======================================================
-@app.post("/telegram/webhook")
+c@app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
     print("🔥 Telegram update received")
