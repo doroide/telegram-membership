@@ -6,7 +6,9 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Numeric,
-    ForeignKey
+    ForeignKey,
+    func,
+    Text
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
