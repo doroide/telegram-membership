@@ -77,4 +77,44 @@ async def my_plans(message: Message):
 async def my_plans_button(callback: CallbackQuery):
     """Handle My Plans button click"""
     await callback.answer()
-    await my_plans(callback.message)
+    
+    telegram_id = callback.from_user.id
+    
+    async with async_session() as session:
+        # Get user
+        result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.message.answer(f"❌ User not found (telegram_id: {telegram_id})")
+            return
+        
+        # Get active memberships
+        result = await session.execute(
+            select(Membership)
+            .where(Membership.user_id == user.id)
+            .where(Membership.is_active == True)
+        )
+        memberships = result.scalars().all()
+        
+        if not memberships:
+            await callback.message.answer("No active plans.")
+            return
+        
+        text = "📋 *Your Active Plans*\n\n"
+        
+        for m in memberships:
+            channel = await session.get(Channel, m.channel_id)
+            
+            now = datetime.now(timezone.utc)
+            days_left = (m.expiry_date - now).days
+            expiry = f"{m.expiry_date.date()} ({days_left} days)"
+            
+            text += (
+                f"📺 {channel.name}\n"
+                f"⏰ Expiry: {expiry}\n\n"
+            )
+        
+        await callback.message.answer(text, parse_mode="Markdown")
