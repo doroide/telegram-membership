@@ -9,7 +9,6 @@ from sqlalchemy import select
 from datetime import datetime, timezone
 from backend.app.db.session import async_session
 from backend.app.db.models import UpsellAttempt, User, Channel, Membership
-from backend.app.services.payment_service import create_payment_link
 import logging
 
 router = Router()
@@ -35,26 +34,45 @@ async def handle_upsell_accept(callback: CallbackQuery):
             user = await db.get(User, upsell.user_id)
             channel = await db.get(Channel, upsell.channel_id)
             
-            # Create payment link with discounted price
-            payment_link = create_payment_link(
-                amount=float(upsell.to_amount),
-                description=f"Upgrade to {upsell.to_validity_days} days - {channel.name}",
-                customer_name=user.full_name,
-                customer_contact=str(user.telegram_id),
-                notes={
-                    "user_id": str(user.id),
+            # Create Razorpay payment link directly with custom amount
+            import razorpay
+            import os
+            
+            razorpay_client = razorpay.Client(
+                auth=(os.getenv("RAZORPAY_KEY"), os.getenv("RAZORPAY_SECRET"))
+            )
+            
+            duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
+            to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
+            
+            payment_data = {
+                "amount": int(float(upsell.to_amount) * 100),  # Convert to paise
+                "currency": "INR",
+                "description": f"Upgrade: {channel.name} - {to_duration}",
+                "customer": {
+                    "name": user.full_name or "User",
+                    "contact": str(user.telegram_id)
+                },
+                "notify": {
+                    "sms": False,
+                    "email": False
+                },
+                "reminder_enable": False,
+                "notes": {
+                    "telegram_id": str(user.telegram_id),
                     "channel_id": str(channel.id),
                     "validity_days": str(upsell.to_validity_days),
                     "tier": str(user.current_tier),
                     "upsell_id": str(upsell.id),
                     "is_upsell": "true"
                 }
-            )
+            }
+            
+            response = razorpay_client.payment_link.create(payment_data)
+            payment_link = response["short_url"]
             
             # Format message
-            duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
-            to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
-            original_price = upsell.to_amount / 0.8  # Calculate original price (before 20% discount)
+            original_price = float(upsell.to_amount) / 0.8  # Calculate original
             
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💳 Pay Now", url=payment_link)],
@@ -65,8 +83,8 @@ async def handle_upsell_accept(callback: CallbackQuery):
                 f"🎁 <b>Upgrade to {to_duration}</b>\n\n"
                 f"📺 Channel: {channel.name}\n\n"
                 f"💰 Original Price: ₹{original_price:.0f}\n"
-                f"🎉 Your Price: ₹{upsell.to_amount:.0f}\n"
-                f"💸 You Save: ₹{upsell.discount_amount:.0f} (20% OFF)\n\n"
+                f"🎉 Your Price: ₹{float(upsell.to_amount):.0f}\n"
+                f"💸 You Save: ₹{float(upsell.discount_amount):.0f} (20% OFF)\n\n"
                 f"Click 'Pay Now' to upgrade!\n\n"
                 f"⚠️ Offer valid for 24 hours",
                 parse_mode="HTML",
