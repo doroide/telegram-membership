@@ -162,8 +162,8 @@ async def view_all_upsells(callback: CallbackQuery):
             from_duration = duration_map.get(upsell.from_validity_days, f"{upsell.from_validity_days} days")
             to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
             
-            original_price = upsell.to_amount / 0.8  # Calculate from 20% discount
-            discount_pct = (upsell.discount_amount / original_price) * 100
+            original_price = float(upsell.to_amount) / 0.8  # Calculate from 20% discount
+            discount_pct = (float(upsell.discount_amount) / original_price) * 100
             
             # Show custom message if manual offer
             if upsell.is_manual and upsell.custom_message:
