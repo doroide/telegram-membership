@@ -157,8 +157,8 @@ async def view_all_upsells(callback: CallbackQuery):
             from_duration = duration_map.get(upsell.from_validity_days, f"{upsell.from_validity_days} days")
             to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
             
-            original_price = float(upsell.to_amount) / 0.8  # Calculate from 20% discount
-            discount_pct = (float(upsell.discount_amount) / original_price) * 100
+            original_price = upsell.to_amount / 0.8  # Calculate from 20% discount
+            discount_pct = (upsell.discount_amount / original_price) * 100
             
             # Show custom message if manual offer
             if upsell.is_manual and upsell.custom_message:
@@ -182,17 +182,6 @@ async def view_all_upsells(callback: CallbackQuery):
                 )
             ])
         
-        keyboard_buttons.append([
-            InlineKeyboardButton(text="❌ Close", callback_data="close_upsells")
-        ])
-        
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         
         await callback.message.answer(msg, parse_mode="Markdown", reply_markup=keyboard)
-
-
-@router.callback_query(F.data == "close_upsells")
-async def close_upsells(callback: CallbackQuery):
-    """Close upsells message"""
-    await callback.answer("You can view offers anytime from /myplans")
-    await callback.message.delete()
