@@ -114,7 +114,7 @@ async def start_command(message: Message):
         ])
 
         keyboard.append([
-            InlineKeyboardButton(text="🎁 Offers for You", callback_data="view_all_upsells")}
+            InlineKeyboardButton(text="🎁 Offers for You", callback_data="view_all_upsells")
         ])
         keyboard.append([
             InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")
