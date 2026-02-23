@@ -16,8 +16,7 @@ import logging
 router = Router()
 logger = logging.getLogger(__name__)
 
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
-
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "-1005793624035"))  # Your telegram ID
 
 class OfferStates(StatesGroup):
     waiting_for_recipients = State()
