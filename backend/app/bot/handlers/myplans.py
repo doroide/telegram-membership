@@ -114,7 +114,7 @@ async def my_plans_button(callback: CallbackQuery):
 @router.callback_query(F.data == "view_all_upsells")
 async def view_all_upsells(callback: CallbackQuery):
     """Show all available upsell offers (auto + manual)"""
-    await callback.answer()
+    
     
     async with async_session() as session:
         # Get user
@@ -122,6 +122,11 @@ async def view_all_upsells(callback: CallbackQuery):
             select(User).where(User.telegram_id == callback.from_user.id)
         )
         user = result.scalar_one_or_none()
+        
+        try:
+            await callback.answer()  # Answer after quick user lookup
+        except:
+            pass
         
         if not user:
             await callback.message.answer("User not found.")
