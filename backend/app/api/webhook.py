@@ -45,10 +45,10 @@ async def handle_renewal_payment(db, payment_data, notes):
     telegram_id = int(notes.get("telegram_id"))
     channel_id = int(notes.get("channel_id"))
     validity_days = int(notes.get("validity_days"))
-    tier = int(notes.get("tier"))
+    tier = int(notes.get("tier")) if notes.get("tier") else 3  # Default tier 3
     amount = float(payment_data.get("amount", 0)) / 100
     is_renewal = notes.get("is_renewal") == "true"
-    old_membership_id = int(notes.get("old_membership_id", 0))
+    old_membership_id = int(notes.get("old_membership_id")) if notes.get("old_membership_id") else 0
     
     # Get user
     result = await db.execute(select(User).where(User.telegram_id == telegram_id))
@@ -379,7 +379,7 @@ async def handle_subscription_cancelled(data):
             )
             if membership:
                 membership.auto_renew_enabled = False
-                membership.subscription_status = "cancelled"
+                 membership.subscription_status = "cancelled"
                 await db.commit()
 
     except Exception:
