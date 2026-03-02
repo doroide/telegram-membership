@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from datetime import datetime, timedelta, timezone
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Channel, Membership, Payment
@@ -29,6 +29,101 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
         hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected_signature, signature)
+
+
+# ======================================================
+# RENEWAL HANDLER WITH GRACE PERIOD & DUPLICATE PREVENTION
+# ======================================================
+
+async def handle_renewal_payment(db, payment_data, notes):
+    """
+    Smart renewal handler:
+    - Checks grace period (48 hours)
+    - Extends existing vs creates new
+    - Prevents duplicate active memberships (GOLDEN RULE)
+    """
+    telegram_id = int(notes.get("telegram_id"))
+    channel_id = int(notes.get("channel_id"))
+    validity_days = int(notes.get("validity_days"))
+    tier = int(notes.get("tier"))
+    amount = float(payment_data.get("amount", 0)) / 100
+    is_renewal = notes.get("is_renewal") == "true"
+    old_membership_id = int(notes.get("old_membership_id", 0))
+    
+    # Get user
+    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        logger.error(f"User not found: {telegram_id}")
+        return False
+    
+    now = datetime.now(timezone.utc)
+    
+    # RENEWAL FLOW - Check grace period
+    if is_renewal and old_membership_id:
+        old_membership = await db.get(Membership, old_membership_id)
+        
+        if old_membership:
+            grace_period_end = old_membership.expiry_date + timedelta(hours=48)
+            within_grace = old_membership.expiry_date < now <= grace_period_end
+            
+            if old_membership.is_active or within_grace:
+                # EXTEND existing membership (active or within grace)
+                old_membership.expiry_date = old_membership.expiry_date + timedelta(days=validity_days)
+                old_membership.is_active = True
+                old_membership.amount_paid += amount
+                old_membership.reminded_7d = False
+                old_membership.reminded_1d = False
+                old_membership.reminded_expired = False
+                
+                logger.info(f"Extended membership {old_membership_id} by {validity_days} days (grace={within_grace})")
+                await db.commit()
+                return True
+            else:
+                # Beyond grace - deactivate old
+                old_membership.is_active = False
+                logger.info(f"Deactivated old membership {old_membership_id} (expired beyond grace)")
+    
+    # GOLDEN SAFETY RULE: Check for existing active membership
+    result = await db.execute(
+        select(Membership).where(
+            and_(
+                Membership.user_id == user.id,
+                Membership.channel_id == channel_id,
+                Membership.is_active == True
+            )
+        )
+    )
+    existing = result.scalar_one_or_none()
+    
+    if existing:
+        # EXTEND existing active membership instead of creating duplicate
+        existing.expiry_date = existing.expiry_date + timedelta(days=validity_days)
+        existing.amount_paid += amount
+        existing.reminded_7d = False
+        existing.reminded_1d = False
+        
+        logger.info(f"Extended existing active membership {existing.id} - NO DUPLICATE CREATED")
+        await db.commit()
+        return True
+    else:
+        # CREATE new membership (no active membership exists)
+        new_membership = Membership(
+            user_id=user.id,
+            channel_id=channel_id,
+            validity_days=validity_days,
+            amount_paid=amount,
+            start_date=now,
+            expiry_date=now + timedelta(days=validity_days),
+            is_active=True,
+            tier=tier
+        )
+        db.add(new_membership)
+        
+        logger.info(f"Created new membership for user {user.id}, channel {channel_id}")
+        await db.commit()
+        return True
 
 
 # ======================================================
@@ -75,12 +170,12 @@ async def handle_payment_captured(data):
     try:
         payment_entity = data.get("payload", {}).get("payment", {}).get("entity", {})
         payment_id = payment_entity.get("id")
-        amount = payment_entity.get("amount", 0) / 100
         notes = payment_entity.get("notes", {})
 
         telegram_id = int(notes.get("telegram_id"))
         channel_id = int(notes.get("channel_id"))
         validity_days = int(notes.get("validity_days"))
+        amount = payment_entity.get("amount", 0) / 100
 
         now = datetime.now(timezone.utc)
 
@@ -93,7 +188,7 @@ async def handle_payment_captured(data):
                 logger.error("User not found for telegram_id=%s", telegram_id)
                 return
 
-            # Save payment
+            # Save payment record
             db.add(Payment(
                 user_id=user.id,
                 channel_id=channel_id,
@@ -101,48 +196,40 @@ async def handle_payment_captured(data):
                 payment_id=payment_id,
                 status="captured"
             ))
-
-            # Fetch latest membership (active or expired)
-            membership = await db.scalar(
-                select(Membership)
-                .where(
-                    Membership.user_id == user.id,
-                    Membership.channel_id == channel_id
-                )
-                .order_by(Membership.expiry_date.desc())
-            )
+            await db.commit()
 
             # -------------------------------
-            # MEMBERSHIP LOGIC (FIXED)
+            # USE NEW RENEWAL HANDLER
             # -------------------------------
-            if membership and membership.expiry_date > now:
-                # Active → extend
-                membership.expiry_date += timedelta(days=validity_days)
-                membership.amount_paid += amount
-            else:
-                # Expired or new → reset clean
-                if not membership:
-                    membership = Membership(
-                        user_id=user.id,
-                        channel_id=channel_id,
-                        tier=user.current_tier,
-                        validity_days=validity_days,
-                        amount_paid=amount,
-                        start_date=now,
-                        expiry_date=now + timedelta(days=validity_days),
-                        is_active=True
-                    )
-                    db.add(membership)
-                else:
-                    membership.start_date = now
-                    membership.expiry_date = now + timedelta(days=validity_days)
-                    membership.amount_paid = amount
-                    membership.is_active = True
+            success = await handle_renewal_payment(db, payment_entity, notes)
+            
+            if not success:
+                logger.error(f"Renewal handler failed for payment {payment_id}")
+                return
 
+            # Update user stats
             user.highest_amount_paid = max(user.highest_amount_paid or 0, amount)
             await db.commit()
 
+            # Get channel for messaging
             channel = await db.get(Channel, channel_id)
+            
+            # Get updated membership for expiry date
+            result = await db.execute(
+                select(Membership).where(
+                    and_(
+                        Membership.user_id == user.id,
+                        Membership.channel_id == channel_id,
+                        Membership.is_active == True
+                    )
+                )
+            )
+            membership = result.scalar_one_or_none()
+            
+            if not membership:
+                logger.error(f"No active membership found after payment")
+                return
+            
             expiry_str = membership.expiry_date.strftime("%d %b %Y")
 
             # -------------------------------
