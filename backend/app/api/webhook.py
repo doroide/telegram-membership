@@ -379,7 +379,7 @@ async def handle_subscription_cancelled(data):
             )
             if membership:
                 membership.auto_renew_enabled = False
-                 membership.subscription_status = "cancelled"
+                membership.subscription_status = "cancelled"
                 await db.commit()
 
     except Exception:
