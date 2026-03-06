@@ -101,8 +101,7 @@ async def on_startup():
     asyncio.create_task(scheduled_upsell_task())
     print("✅ Upsell sender task started")
     
-    asyncio.create_task(scheduled_reminder_task())
-    print("✅ Reminder task started")
+    
 
 # ======================================================
 # SHUTDOWN
