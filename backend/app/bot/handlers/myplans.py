@@ -63,11 +63,13 @@ async def my_plans(message: Message):
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "✅ *ACTIVE*\n\n"
             
-            for m in active_plans:
+            for idx, m in enumerate(active_plans, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+                
+                text += f"📺 *{idx}. {channel.name}*\n"
                 
                 text += f"📺 *{channel.name}*\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
@@ -81,11 +83,14 @@ async def my_plans(message: Message):
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "⏰ *EXPIRING SOON*\n\n"
             
-            for m in expiring_soon:
+            for idx, m in enumerate(expiring_soon, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+                
+                text += f"📺 *{idx}. {channel.name}*\n"
+
                 
                 text += f"📺 *{channel.name}*\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
@@ -116,12 +121,12 @@ async def my_plans(message: Message):
         if expired_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "❌ *EXPIRED*\n\n"
-            
-            for m in expired_plans[:5]:  # Show max 5
+
+            for idx, m in enumerate(expired_plans[:5], 1):  # Show max 5
                 channel = await session.get(Channel, m.channel_id)
                 expired_date = m.expiry_date.strftime("%d %b %Y")
                 
-                text += f"📺 {channel.name}\n"
+                text += f"📺 {idx}. {channel.name}\n"
                 text += f"   └ Expired: {expired_date}\n\n"
                 
                 renew_buttons.append([
