@@ -15,6 +15,7 @@ from backend.bot.bot import bot, dp
 # IMPORT HANDLERS
 # ======================================================
 from backend.app.tasks.upsell_sender import scheduled_upsell_task
+from backend.app.tasks.reminder_sender import run_reminder_check
 from backend.app.bot.handlers.start import router as start_router
 from backend.app.bot.handlers.renew import router as renew_router
 from backend.app.bot.handlers.broadcast import router as broadcast_router
@@ -99,6 +100,9 @@ async def on_startup():
     # ✅ START UPSELL SENDER
     asyncio.create_task(scheduled_upsell_task())
     print("✅ Upsell sender task started")
+    
+    asyncio.create_task(scheduled_reminder_task())
+    print("✅ Reminder task started")
 
 # ======================================================
 # SHUTDOWN
