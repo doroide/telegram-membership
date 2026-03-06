@@ -33,7 +33,7 @@ async def admin_panel(message: Message):
         [InlineKeyboardButton(text="➕ Add New Channel", callback_data="admin_add_channel")],
         [InlineKeyboardButton(text="💰 View Payments", callback_data="admin_view_payments")],
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],
-        [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")]
+        [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")],
         [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")]
     ])
     
@@ -338,7 +338,7 @@ async def back_to_main(callback: CallbackQuery):
         [InlineKeyboardButton(text="➕ Add New Channel", callback_data="admin_add_channel")],
         [InlineKeyboardButton(text="💰 View Payments", callback_data="admin_view_payments")],
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],
-        [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")]
+        [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")],
         [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")]
     ])
     
