@@ -2,7 +2,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from backend.app.tasks.expiry_checker import run_expiry_check
-from backend.app.tasks.reminder_worker import run_reminder_check
+from backend.app.tasks.reminder_sender import run_reminder_check
 from backend.app.tasks.reports import (
     send_daily_report,
     send_weekly_report,

@@ -141,3 +141,12 @@ async def run_reminder_check():
             print(f"✅ Sent {reminder_count} reminder(s)")
         else:
             print("✅ No reminders to send at this time")
+
+async def scheduled_reminder_task():
+    import asyncio
+    while True:
+        try:
+            await run_reminder_check()
+        except Exception as e:
+            print(f"❌ Reminder task error: {e}")
+        await asyncio.sleep(3600)  # Run every 1 hour
