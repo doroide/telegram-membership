@@ -169,7 +169,7 @@ async def kick_user_execute(callback: CallbackQuery):
             text=(
                 f"⛔ <b>Access Removed</b>\n\n"
                 f"You have been removed from <b>{channel.name}</b> by an admin.\n\n"
-                f"If you think this is a mistake, please contact support."
+                f"If you think this is a mistake, please contact admin @Doroide47."
             ),
             parse_mode="HTML"
         )

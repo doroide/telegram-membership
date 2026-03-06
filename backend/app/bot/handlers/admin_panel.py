@@ -34,7 +34,9 @@ async def admin_panel(message: Message):
         [InlineKeyboardButton(text="💰 View Payments", callback_data="admin_view_payments")],
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],
         [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")],
-        [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")]
+        [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")],
+        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")]
+
     ])
     
     await message.answer(
@@ -339,7 +341,9 @@ async def back_to_main(callback: CallbackQuery):
         [InlineKeyboardButton(text="💰 View Payments", callback_data="admin_view_payments")],
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],
         [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")],
-        [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")]
+        [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")],
+        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")]
+
     ])
     
     await callback.message.edit_text(
