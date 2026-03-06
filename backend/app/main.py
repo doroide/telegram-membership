@@ -31,6 +31,7 @@ from backend.app.bot.handlers.admin_panel import router as admin_panel_router
 from backend.app.bot.handlers.analytics import router as analytics_router
 from backend.app.bot.handlers.autorenew import router as autorenew_router
 from backend.app.bot.handlers.admin_offers import router as admin_offers_router
+from backend.app.bot.handlers.admin_kick import router as admin_kick_router
 
 
 from backend.app.db.base import Base
@@ -54,6 +55,7 @@ dp.include_router(analytics_router)
 dp.include_router(export_router)
 dp.include_router(admin_panel_router)
 dp.include_router(admin_offers_router)
+dp.include_router(admin_kick_router)
 
 print("✅ Aiogram routers registered")
 
