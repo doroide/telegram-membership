@@ -1,4 +1,5 @@
 import os
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
@@ -283,6 +284,7 @@ async def bc_confirm_send(callback: CallbackQuery, state: FSMContext):
                     parse_mode="HTML"
                 )
             sent += 1
+            await asyncio.sleep(0.05)  # Prevent spam detection
         except Exception:
             failed += 1
 

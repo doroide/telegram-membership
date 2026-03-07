@@ -79,7 +79,7 @@ async def start_command(message: Message):
         
         # Build channel selection keyboard
         keyboard = []
-        for channel in channels:
+        for idx, channel in enumerate(channels, 1):
             # Check if user has active membership
             has_active = False
             if channel.id in purchased_channel_ids:
@@ -103,7 +103,7 @@ async def start_command(message: Message):
             
             keyboard.append([
                 InlineKeyboardButton(
-                    text=f"{status} {channel.name}",
+                    text=f"{idx}. {status} {channel.name}",
                     callback_data=f"userch_{channel.id}"
                 )
             ])
