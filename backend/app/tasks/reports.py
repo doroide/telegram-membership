@@ -23,7 +23,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 async def _send_to_admins(text: str):
     for admin_id in ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, text)
+            await bot.send_message(admin_id, text, parse_mode="HTML")
         except Exception as e:
             print(f"❌ Failed to send report to {admin_id}: {e}")
 

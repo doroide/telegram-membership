@@ -63,6 +63,16 @@ async def show_channel_plans(callback: CallbackQuery):
             
             # Create buttons for each plan
             keyboard = []
+
+            # Add description button only for public channels
+            if channel.is_public and channel.description:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        text="ℹ️ Channel Description",
+                        callback_data=f"ch_desc_{channel_id}"
+                    )
+                ])
+
             for index, plan in enumerate(plans):
                 button_text = format_plan_display(plan)
                 keyboard.append([
@@ -79,7 +89,6 @@ async def show_channel_plans(callback: CallbackQuery):
             try:
                 await callback.message.edit_text(
                     f"📺 <b>{channel.name}</b>\n\n"
-                    f"💎 Your Tier: {tier_display}\n\n"
                     f"Choose your subscription plan:",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                     parse_mode="HTML"
@@ -311,5 +320,60 @@ async def back_to_channels(callback: CallbackQuery):
                 # Message is same or query too old
                 await callback.answer()
     
+    except Exception as e:
+        await callback.answer(f"Error: {str(e)}", show_alert=True)
+
+# =====================================================
+# CHANNEL DESCRIPTION
+# =====================================================
+
+@router.callback_query(F.data.startswith("ch_desc_"))
+async def show_channel_description(callback: CallbackQuery):
+    try:
+        channel_id = int(callback.data.split("_")[2])
+
+        async with async_session() as session:
+            channel_result = await session.execute(
+                select(Channel).where(Channel.id == channel_id)
+            )
+            channel = channel_result.scalar_one_or_none()
+
+            if not channel:
+                await callback.answer("Channel not found", show_alert=True)
+                return
+
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == callback.from_user.id)
+            )
+            user = user_result.scalar_one_or_none()
+
+            plans = get_plans_for_user(user, channel_id)
+
+            # Build plan buttons
+            keyboard = []
+            for plan in plans:
+                button_text = format_plan_display(plan)
+                keyboard.append([
+                    InlineKeyboardButton(
+                        text=button_text,
+                        callback_data=f"buy_{channel_id}_{plan['days']}_{plan['price']}"
+                    )
+                ])
+            keyboard.append([
+                InlineKeyboardButton(text="🔙 Back", callback_data=f"userch_{channel_id}")
+            ])
+
+            try:
+                await callback.message.edit_text(
+                    f"📺 <b>{channel.name}</b>\n\n"
+                    f"{channel.description}\n\n"
+                    f"Choose your subscription plan:",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+                    parse_mode="HTML"
+                )
+                await callback.answer()
+            except TelegramBadRequest:
+                await callback.answer()
+
     except Exception as e:
         await callback.answer(f"Error: {str(e)}", show_alert=True)

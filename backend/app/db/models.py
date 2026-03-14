@@ -48,6 +48,7 @@ class Channel(Base):
 
     telegram_chat_id = Column(String(255), unique=True, nullable=False)
 
+    description = Column(Text, nullable=True)
     is_public = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
 
