@@ -420,6 +420,9 @@ async def view_all_upsells(callback: CallbackQuery):
         for upsell in upsells:
             # Get channel
             channel = await session.get(Channel, upsell.channel_id)
+            if not channel:
+                continue  # Skip upsells for deleted/missing channels
+
             
             # Format durations
             duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
