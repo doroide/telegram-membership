@@ -231,6 +231,9 @@ async def handle_payment_captured(data):
                 return
             
             expiry_str = membership.expiry_date.strftime("%d %b %Y")
+            validity_days = membership.validity_days
+            duration_map = {30: "1 Month", 90: "3 Months", 180: "6 Months", 365: "1 Year", 730: "Lifetime"}
+            plan_display = duration_map.get(validity_days, f"{validity_days} days")
 
             # -------------------------------
             # SEND INVITE LINK
@@ -244,11 +247,13 @@ async def handle_payment_captured(data):
 
                 await bot.send_message(
                     telegram_id,
-                    f"✅ <b>Payment Successful!</b>\n\n"
-                    f"💳 Amount: ₹{amount:.0f}\n"
+                    f"✅ <b>Payment Successful!</b>\n"
+                    f"🎉 Your subscription is now active.\n\n"
                     f"📺 Channel: {channel.name}\n"
-                    f"⏰ Valid until: {expiry_str}\n\n"
-                    f"🔗 <b>Your Invite Link:</b>\n{invite.invite_link}\n\n"
+                    f"📦 Plan: {validity_days} days\n"
+                    f"⏳ Valid till: {expiry_str}\n\n"
+                    f"Tap below to join your channel 👇\n\n"
+                    f"🔗 {invite.invite_link}\n\n"
                     f"⚠️ Link expires in 10 minutes",
                     parse_mode="HTML"
                 )
@@ -278,11 +283,13 @@ async def handle_payment_captured(data):
 
             await bot.send_message(
                 telegram_id,
-                f"💰 <b>Never Miss Access!</b>\n\n"
+               f"🔄 <b>Stay Connected Automatically!</b>\n\n"
                 f"Enable Auto-Renewal for ₹{amount:.0f}/month\n\n"
+                f"⚡ Never lose access to your channels\n"
                 f"✅ Automatic payments\n"
                 f"✅ Cancel anytime\n"
-                f"✅ No interruptions",
+                f"✅ No renewal reminders needed\n\n"
+                f"Tap below to enable Auto-Renewal 👇",
                 parse_mode="HTML",
                 reply_markup=keyboard
             )

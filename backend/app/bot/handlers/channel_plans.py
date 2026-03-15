@@ -83,6 +83,7 @@ async def show_channel_plans(callback: CallbackQuery):
                 await callback.message.edit_text(
                     f"📺 <b>{channel.name}</b>\n\n"
                     f"Choose your subscription plan:",
+                    f"⚡ Instant access after payment",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                     parse_mode="HTML"
                 )
@@ -183,7 +184,7 @@ async def handle_plan_purchase(callback: CallbackQuery):
                     f"📺 Channel: {channel.name}\n"
                     f"📦 Plan: {validity_display}\n"
                     f"💰 Amount: ₹{amount}\n\n"
-                    f"Click the button below to complete payment:",
+                    f"⚡ Instant access after payment",
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
