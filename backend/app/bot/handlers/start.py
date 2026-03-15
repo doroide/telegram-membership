@@ -78,6 +78,14 @@ async def start_command(message: Message):
             return
         
         # Build channel selection keyboard
+       # Fixed channel emojis by channel ID
+        channel_emojis = {
+            12: "📺", 13: "🔥", 14: "🎬", 15: "📚",
+            16: "🔞", 17: "💫", 18: "💎", 19: "🎭",
+            20: "📸", 21: "🌶️"
+        }
+
+        # Build channel selection keyboard
         keyboard = []
         for idx, channel in enumerate(channels, 1):
             # Check if user has active membership
@@ -92,18 +100,21 @@ async def start_command(message: Message):
                     )
                 )
                 has_active = membership_check.scalar_one_or_none() is not None
-            
-            # Add status indicator
+
+            ch_emoji = channel_emojis.get(channel.id, "📺")
+
             if has_active:
                 status = "✅"
             elif channel.id in purchased_channel_ids:
-                status = "⏰"  # Expired
+                status = "⏰"
             else:
-                status = "📺"  # New
-            
+                status = ""
+
+            status_prefix = f"{status} " if status else ""
+
             keyboard.append([
                 InlineKeyboardButton(
-                    text=f"{idx}. {status} {channel.name}",
+                    text=f"{idx}️⃣ {ch_emoji} {status_prefix}{channel.name}",
                     callback_data=f"userch_{channel.id}"
                 )
             ])
@@ -121,12 +132,13 @@ async def start_command(message: Message):
         ])
         
         welcome_message = (
-            f"👋 <b>Welcome{' back' if user.id else ''}, {message.from_user.first_name}!</b>\n\n"
-            f"📺 Available channels:\n\n"
-            f"✅ = Active subscription\n"
-            f"⏰ = Expired (renew available)\n"
-            f"📺 = New channel\n\n"
-            f"Select a channel to view plans:"
+            f"👋 <b>Welcome, {message.from_user.first_name}!</b>\n\n"
+            f"🎬 <b>Premium Content Collections</b>\n"
+            f"Choose a channel below to view plans and get instant access.\n\n"
+            f"⚡ Direct Videos\n"
+            f"⚡ HD Quality\n"
+            f"⚡ Daily Updates\n\n"
+            f"✅ = Active  ⏰ = Expired"
         )
         
         await message.answer(

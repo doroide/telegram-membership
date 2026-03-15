@@ -271,6 +271,14 @@ async def back_to_channels(callback: CallbackQuery):
                 return
             
             # Build keyboard
+            # Fixed channel emojis by channel ID
+            channel_emojis = {
+                12: "📺", 13: "🔥", 14: "🎬", 15: "📚",
+                16: "🔞", 17: "💫", 18: "💎", 19: "🎭",
+                20: "📸", 21: "🌶️"
+            }
+
+            # Build keyboard
             keyboard = []
             for idx, channel in enumerate(channels, 1):
                 # Check if user has active membership
@@ -285,18 +293,21 @@ async def back_to_channels(callback: CallbackQuery):
                         )
                     )
                     has_active = membership_check.scalar_one_or_none() is not None
-                
-                # Add status indicator
+
+                ch_emoji = channel_emojis.get(channel.id, "📺")
+
                 if has_active:
                     status = "✅"
                 elif channel.id in purchased_channel_ids:
                     status = "⏰"
                 else:
-                    status = "📺"
-                
+                    status = ""
+
+                status_prefix = f"{status} " if status else ""
+
                 keyboard.append([
                     InlineKeyboardButton(
-                        text=f"{idx}. {status} {channel.name}",
+                        text=f"{idx}️⃣ {ch_emoji} {status_prefix}{channel.name}",
                         callback_data=f"userch_{channel.id}"
                     )
                 ])
