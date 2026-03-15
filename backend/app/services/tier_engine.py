@@ -165,19 +165,16 @@ def get_price_for_validity(tier: int, validity_days: int) -> int:
 
 
 def format_plan_display(plan: dict) -> str:
-    """
-    Format plan for display in bot
-    
-    Args:
-        plan: Plan dictionary with validity, days, price
-    
-    Returns:
-        Formatted string like "1 Month ₹49" or "Lifetime ₹999"
-    """
     validity = plan["validity"]
     price = plan["price"]
-    
+    labels = {
+        "1M": "1 Month",
+        "3M": "3 Months",
+        "4M": "4 Months",
+        "6M": "6 Months",
+        "1Y": "1 Year",
+    }
     if validity == "Lifetime":
-        return f"Lifetime ₹{price}"
+        return f"💎 Lifetime Access — ₹{price}"
     else:
-        return f"{validity} ₹{price}"
+        return f"{labels.get(validity, validity)} — ₹{price}"
