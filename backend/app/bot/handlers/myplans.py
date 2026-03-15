@@ -62,7 +62,6 @@ async def my_plans(message: Message):
         if active_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "✅ *ACTIVE*\n\n"
-            
             for idx, m in enumerate(active_plans, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
@@ -84,8 +83,7 @@ async def my_plans(message: Message):
         if expiring_soon:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "⏰ *EXPIRING SOON*\n\n"
-            
-           for idx, m in enumerate(expiring_soon, 1):
+            for idx, m in enumerate(expiring_soon, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
