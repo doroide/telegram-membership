@@ -55,13 +55,16 @@ async def my_plans(message: Message):
                     expiring_soon.append(m)
         
         # Build message
-        text = "📋 *Your Subscriptions*\n\n"
+        expiring_count = len(expiring_soon)
+        expired_count = len(expired_plans)
+        text = f"📋 *Your Subscriptions*\n"
+        text += f"✅ Active: {len(active_plans)}  ⚠️ Expiring: {expiring_count}  ❌ Expired: {expired_count}\n\n"
         renew_buttons = []
         
         # ACTIVE SECTION (>15 days) - NO RENEW BUTTON
         if active_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
-            text += "✅ *ACTIVE*\n\n"
+            text += f"✅ *ACTIVE* ({len(active_plans)})\n\n"
             for idx, m in enumerate(active_plans, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
@@ -82,7 +85,7 @@ async def my_plans(message: Message):
         # EXPIRING SOON SECTION (1-15 days) - WITH RENEW BUTTON
         if expiring_soon:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
-            text += "⏰ *EXPIRING SOON*\n\n"
+            text += f"⚠️ *EXPIRING SOON* ({len(expiring_soon)})\n\n"
             for idx, m in enumerate(expiring_soon, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
@@ -122,7 +125,6 @@ async def my_plans(message: Message):
         if expired_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "❌ *EXPIRED*\n\n"
-
             for idx, m in enumerate(expired_plans[:5], 1):  # Show max 5
                 channel = await session.get(Channel, m.channel_id)
                 expired_date = m.expiry_date.strftime("%d %b %Y")
@@ -209,8 +211,7 @@ async def my_plans_button(callback: CallbackQuery):
         if active_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += f"✅ *ACTIVE* ({len(active_plans)})\n\n"
-            
-              for idx, m in enumerate(active_plans, 1):
+            for idx, m in enumerate(active_plans, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
@@ -228,11 +229,9 @@ async def my_plans_button(callback: CallbackQuery):
             text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         # EXPIRING SOON SECTION
-       # EXPIRING SOON SECTION
         if expiring_soon:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += f"⚠️ *EXPIRING SOON* ({len(expiring_soon)})\n\n"
-            
             for idx, m in enumerate(expiring_soon, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
@@ -270,11 +269,11 @@ async def my_plans_button(callback: CallbackQuery):
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "❌ *EXPIRED*\n\n"
             
-            for m in expired_plans[:5]:
+            for idx, m in enumerate(expired_plans[:5], 1):
                 channel = await session.get(Channel, m.channel_id)
                 expired_date = m.expiry_date.strftime("%d %b %Y")
                 
-                text += f"📺 {channel.name}\n"
+                text += f"📺 {idx}. {channel.name}\n"
                 text += f"   └ Expired: {expired_date}\n\n"
                 
                 renew_buttons.append([
@@ -437,7 +436,6 @@ async def view_all_upsells(callback: CallbackQuery):
             if not channel:
                 continue  # Skip upsells for deleted/missing channels
 
-            
             # Format durations
             duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
             from_duration = duration_map.get(upsell.from_validity_days, f"{upsell.from_validity_days} days")
