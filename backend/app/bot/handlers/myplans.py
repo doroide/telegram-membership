@@ -413,7 +413,8 @@ async def view_all_upsells(callback: CallbackQuery):
         
         # Build offers message
         msg = "🎁 *Your Exclusive Offers*\n\n"
-        msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        msg = "⏳ *Launch Offer — Limited Time*\n\n"  
+      #  msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         keyboard_buttons = []
         
@@ -437,14 +438,15 @@ async def view_all_upsells(callback: CallbackQuery):
                 msg += f"✨ *{upsell.custom_message}*\n\n"
             
             msg += f"📺 *{channel.name}*\n"
-            msg += f"Upgrade: {from_duration} → {to_duration}\n"
-            msg += f"💰 ~~₹{original_price:.0f}~~ → ₹{float(upsell.to_amount):.0f}\n"
-            msg += f"💸 Save ₹{float(upsell.discount_amount):.0f} ({discount_pct:.0f}% OFF)\n"
+            msg += f"📈 Upgrade Plan\n"
+            msg += f"{from_duration} → {to_duration}\n"
+            msg += f"💰 ₹{original_price:.0f} → ₹{float(upsell.to_amount):.0f}\n"
+            msg += f"🎉 Save ₹{float(upsell.discount_amount):.0f} • {discount_pct:.0f}% OFF\n"
             
             if upsell.is_manual:
                 msg += f"🎁 *Special admin offer!*\n"
             
-            msg += "\n━━━━━━━━━━━━━━━━━━━━\n\n"
+         #   msg += "\n━━━━━━━━━━━━━━━━━━━━\n\n"
             
             # Add button
             keyboard_buttons.append([
