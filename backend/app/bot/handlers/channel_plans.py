@@ -14,6 +14,12 @@ from backend.app.services.tier_engine import (
 
 router = Router()
 
+CHANNEL_EMOJIS = {
+    12: "📺", 13: "🔥", 14: "🎬", 15: "📚",
+    16: "🔞", 17: "💫", 18: "💎", 19: "🎭",
+    20: "📸", 21: "🌶️"
+}
+
 
 # =====================================================
 # SHOW PRICING PLANS FOR SELECTED CHANNEL
@@ -26,7 +32,6 @@ async def show_channel_plans(callback: CallbackQuery):
         channel_id = int(callback.data.split("_")[1])
         
         async with async_session() as session:
-            # Get channel
             channel_result = await session.execute(
                 select(Channel).where(Channel.id == channel_id)
             )
@@ -36,7 +41,6 @@ async def show_channel_plans(callback: CallbackQuery):
                 await callback.answer("Channel not found", show_alert=True)
                 return
             
-            # Get user
             user_result = await session.execute(
                 select(User).where(User.telegram_id == callback.from_user.id)
             )
@@ -46,25 +50,14 @@ async def show_channel_plans(callback: CallbackQuery):
                 await callback.answer("User not found. Please start with /start", show_alert=True)
                 return
             
-            # Get plans based on user's tier
             plans = get_plans_for_user(user, channel_id)
             
             if not plans:
                 await callback.answer("No plans available", show_alert=True)
                 return
             
-            # Determine tier display name
-            if user.is_lifetime_member:
-                tier_display = f"Lifetime Member (₹{user.lifetime_amount})"
-            elif channel_id == 1 and user.channel_1_tier:
-                tier_display = f"Tier {user.channel_1_tier}"
-            else:
-                tier_display = f"Tier {user.current_tier}"
-            
-            # Create buttons for each plan
             keyboard = []
 
-            # Add description button only for public channels
             if channel.is_public and channel.description:
                 keyboard.append([
                     InlineKeyboardButton(
@@ -95,7 +88,6 @@ async def show_channel_plans(callback: CallbackQuery):
                 )
                 await callback.answer()
             except TelegramBadRequest:
-                # Message is same or query too old
                 await callback.answer()
     
     except Exception as e:
@@ -128,7 +120,6 @@ async def handle_plan_purchase(callback: CallbackQuery):
         print(f"   Amount: {amount}")
         
         async with async_session() as session:
-            # Get channel
             print(f"🔍 Looking up channel {channel_id}...")
             channel_result = await session.execute(
                 select(Channel).where(Channel.id == channel_id)
@@ -142,7 +133,6 @@ async def handle_plan_purchase(callback: CallbackQuery):
             
             print(f"✅ Found channel: {channel.name}")
             
-            # Get user
             print(f"🔍 Looking up user {callback.from_user.id}...")
             user_result = await session.execute(
                 select(User).where(User.telegram_id == callback.from_user.id)
@@ -156,7 +146,6 @@ async def handle_plan_purchase(callback: CallbackQuery):
             
             print(f"✅ Found user: ID={user.id}, Telegram ID={user.telegram_id}")
             
-            # Format plan name
             validity_display = {
                 30: "1 Month",
                 90: "3 Months",
@@ -173,7 +162,6 @@ async def handle_plan_purchase(callback: CallbackQuery):
             print(f"   days: {validity_days}")
             print(f"   price: {amount}")
             
-            # Create payment link
             payment_link = await create_payment_link(
                 user_id=user.id,
                 telegram_id=user.telegram_id,
@@ -184,7 +172,6 @@ async def handle_plan_purchase(callback: CallbackQuery):
             
             print(f"✅ Payment link created: {payment_link}")
             
-            # Send payment link
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💳 Pay Now", url=payment_link)],
                 [InlineKeyboardButton(text="🔙 Back", callback_data=f"userch_{channel_id}")]
@@ -229,7 +216,6 @@ async def back_to_channels(callback: CallbackQuery):
         telegram_id = callback.from_user.id
         
         async with async_session() as session:
-            # Get user
             user_result = await session.execute(
                 select(User).where(User.telegram_id == telegram_id)
             )
@@ -239,7 +225,6 @@ async def back_to_channels(callback: CallbackQuery):
                 await callback.answer("User not found", show_alert=True)
                 return
             
-            # Get user's purchased channels
             from backend.app.db.models import Membership
             membership_result = await session.execute(
                 select(Membership.channel_id)
@@ -248,7 +233,6 @@ async def back_to_channels(callback: CallbackQuery):
             )
             purchased_channel_ids = [row[0] for row in membership_result.all()]
             
-            # Get channels to display
             channel_result = await session.execute(
                 select(Channel)
                 .where(
@@ -270,44 +254,12 @@ async def back_to_channels(callback: CallbackQuery):
                     await callback.answer()
                 return
             
-            # Build keyboard
-            # Fixed channel emojis by channel ID
-            channel_emojis = {
-                12: "📺", 13: "🔥", 14: "🎬", 15: "📚",
-                16: "🔞", 17: "💫", 18: "💎", 19: "🎭",
-                20: "📸", 21: "🌶️"
-            }
-
-            # Build keyboard
             keyboard = []
             for idx, channel in enumerate(channels, 1):
-                # Check if user has active membership
-                has_active = False
-                if channel.id in purchased_channel_ids:
-                    membership_check = await session.execute(
-                        select(Membership)
-                        .where(
-                            Membership.user_id == user.id,
-                            Membership.channel_id == channel.id,
-                            Membership.is_active == True
-                        )
-                    )
-                    has_active = membership_check.scalar_one_or_none() is not None
-
-                ch_emoji = channel_emojis.get(channel.id, "📺")
-
-                if has_active:
-                    status = "✅"
-                elif channel.id in purchased_channel_ids:
-                    status = "⏰"
-                else:
-                    status = ""
-
-                status_prefix = f"{status} " if status else ""
-
+                ch_emoji = CHANNEL_EMOJIS.get(channel.id, "📺")
                 keyboard.append([
                     InlineKeyboardButton(
-                        text=f"{idx}️⃣ {ch_emoji} {status_prefix}{channel.name}",
+                        text=f"{idx}. {ch_emoji} {channel.name}",
                         callback_data=f"userch_{channel.id}"
                     )
                 ])
@@ -319,20 +271,17 @@ async def back_to_channels(callback: CallbackQuery):
             try:
                 await callback.message.edit_text(
                     "📺 <b>Available Channels</b>\n\n"
-                    "✅ = Active subscription\n"
-                    "⏰ = Expired (renew available)\n"
-                    "📺 = New channel\n\n"
-                    "Select a channel to view plans:",
+                    "👇 Select a channel to view plans:",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                     parse_mode="HTML"
                 )
                 await callback.answer()
             except TelegramBadRequest:
-                # Message is same or query too old
                 await callback.answer()
     
     except Exception as e:
         await callback.answer(f"Error: {str(e)}", show_alert=True)
+
 
 # =====================================================
 # CHANNEL DESCRIPTION
@@ -360,7 +309,6 @@ async def show_channel_description(callback: CallbackQuery):
 
             plans = get_plans_for_user(user, channel_id)
 
-            # Build plan buttons
             keyboard = []
             for plan in plans:
                 button_text = format_plan_display(plan)

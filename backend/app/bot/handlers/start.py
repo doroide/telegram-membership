@@ -103,18 +103,9 @@ async def start_command(message: Message):
 
             ch_emoji = channel_emojis.get(channel.id, "📺")
 
-            if has_active:
-                status = "✅"
-            elif channel.id in purchased_channel_ids:
-                status = "⏰"
-            else:
-                status = ""
-
-            status_prefix = f"{status} " if status else ""
-
             keyboard.append([
                 InlineKeyboardButton(
-                    text=f"{idx}️⃣ {ch_emoji} {status_prefix}{channel.name}",
+                   text=f"{idx}. {ch_emoji} {channel.name}",
                     callback_data=f"userch_{channel.id}"
                 )
             ])
@@ -138,7 +129,7 @@ async def start_command(message: Message):
             f"⚡ Direct Videos\n"
             f"⚡ HD Quality\n"
             f"⚡ Daily Updates\n\n"
-            f"✅ = Active  ⏰ = Expired"
+            f"👇 Select a channel to get started:"
         )
         
         await message.answer(
