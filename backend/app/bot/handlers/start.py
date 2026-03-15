@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Channel, Membership
+from datetime import datetime, timezone
 
 router = Router()
 
@@ -120,14 +121,50 @@ async def start_command(message: Message):
             InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")
         ])
         
-        welcome_message = (
-            f"👋 <b>Welcome{' back' if user.id else ''}, {message.from_user.first_name}!</b>\n\n"
-            f"📺 Available channels:\n\n"
-            f"✅ = Active subscription\n"
-            f"⏰ = Expired (renew available)\n"
-            f"📺 = New channel\n\n"
-            f"Select a channel to view plans:"
-        )
+       # Count active and expiring memberships
+        now = datetime.now(timezone.utc)
+        active_count = 0
+        expiring_count = 0
+        if purchased_channel_ids:
+            from sqlalchemy import func
+            mem_result = await session.execute(
+                select(Membership).where(
+                    Membership.user_id == user.id,
+                    Membership.is_active == True,
+                    Membership.expiry_date > now
+                )
+            )
+            all_active = mem_result.scalars().all()
+            for m in all_active:
+                days_left = (m.expiry_date - now).days
+                if days_left <= 15:
+                    expiring_count += 1
+                else:
+                    active_count += 1
+
+        is_new_user = len(purchased_channel_ids) == 0
+
+        if is_new_user:
+            welcome_message = (
+                f"👋 <b>Welcome, {message.from_user.first_name}!</b>\n\n"
+                f"🎬 Your one-stop destination for premium content.\n\n"
+                f"🔥 What's inside:\n"
+                f"📺 5000+ Webseries\n"
+                f"🎭 4000+ Movies\n"
+                f"📖 Comics Collection\n"
+                f"🔞 Exclusive 18+ Content\n\n"
+                f"👇 Select a channel to get started:"
+            )
+        else:
+            status_line = f"✅ Active: {active_count}"
+            if expiring_count > 0:
+                status_line += f"  ⚠️ Expiring Soon: {expiring_count}"
+            welcome_message = (
+                f"👋 <b>Welcome back, {message.from_user.first_name}!</b>\n\n"
+                f"{status_line}\n\n"
+                f"✅ = Active  ⏰ = Expired  📺 = New\n\n"
+                f"👇 Select a channel:"
+            )
         
         await message.answer(
             welcome_message,

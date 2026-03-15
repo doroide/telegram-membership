@@ -68,10 +68,12 @@ async def my_plans(message: Message):
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+                total_days = m.validity_days or 30
+                progress = min(int((days_left / total_days) * 10), 10)
+                bar = "🟢" * progress + "⬜" * (10 - progress)
                 
                 text += f"📺 *{idx}. {channel.name}*\n"
-                
-                text += f"📺 *{channel.name}*\n"
+                text += f"   {bar}\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
                 text += f"   ├ ⏳ {days_left} days remaining\n"
                 text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
@@ -83,16 +85,17 @@ async def my_plans(message: Message):
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "⏰ *EXPIRING SOON*\n\n"
             
-            for idx, m in enumerate(expiring_soon, 1):
+           for idx, m in enumerate(expiring_soon, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+                total_days = m.validity_days or 30
+                progress = min(int((days_left / total_days) * 10), 10)
+                bar = "🟡" * progress + "⬜" * (10 - progress)
                 
                 text += f"📺 *{idx}. {channel.name}*\n"
-
-                
-                text += f"📺 *{channel.name}*\n"
+                text += f"   {bar}\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
                 text += f"   ├ ⏳ {days_left} days remaining\n"
                 text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
@@ -196,22 +199,30 @@ async def my_plans_button(callback: CallbackQuery):
                 else:
                     expiring_soon.append(m)
         
-        # Build message
-        text = "📋 *Your Subscriptions*\n\n"
+        total = len(active_plans) + len(expiring_soon)
+        expiring_count = len(expiring_soon)
+        expired_count = len(expired_plans)
+
+        text = f"📋 *Your Subscriptions*\n"
+        text += f"✅ Active: {len(active_plans)}  ⚠️ Expiring: {expiring_count}  ❌ Expired: {expired_count}\n\n"
         renew_buttons = []
         
-        # ACTIVE SECTION
+        # ACTIVE SECTION (>15 days) - NO RENEW BUTTON
         if active_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
-            text += "✅ *ACTIVE*\n\n"
+            text += f"✅ *ACTIVE* ({len(active_plans)})\n\n"
             
-            for m in active_plans:
+              for idx, m in enumerate(active_plans, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+                total_days = m.validity_days or 30
+                progress = min(int((days_left / total_days) * 10), 10)
+                bar = "🟢" * progress + "⬜" * (10 - progress)
                 
-                text += f"📺 *{channel.name}*\n"
+                text += f"📺 *{idx}. {channel.name}*\n"
+                text += f"   {bar}\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
                 text += f"   ├ ⏳ {days_left} days remaining\n"
                 text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
@@ -219,17 +230,22 @@ async def my_plans_button(callback: CallbackQuery):
             text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         # EXPIRING SOON SECTION
+       # EXPIRING SOON SECTION
         if expiring_soon:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
-            text += "⏰ *EXPIRING SOON*\n\n"
+            text += f"⚠️ *EXPIRING SOON* ({len(expiring_soon)})\n\n"
             
-            for m in expiring_soon:
+            for idx, m in enumerate(expiring_soon, 1):
                 channel = await session.get(Channel, m.channel_id)
                 days_left = (m.expiry_date - now).days
                 expiry_date = m.expiry_date.strftime("%d %b %Y")
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
+                total_days = m.validity_days or 30
+                progress = min(int((days_left / total_days) * 10), 10)
+                bar = "🟡" * progress + "⬜" * (10 - progress)
                 
-                text += f"📺 *{channel.name}*\n"
+                text += f"📺 *{idx}. {channel.name}*\n"
+                text += f"   {bar}\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
                 text += f"   ├ ⏳ {days_left} days remaining\n"
                 text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
