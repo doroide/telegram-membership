@@ -202,7 +202,7 @@ async def my_plans_button(callback: CallbackQuery):
         
         # ACTIVE SECTION
         if active_plans:
-            text += "━━━━━━━━━━━━━━━━━━━━\n"
+           # text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "✅ *ACTIVE*\n\n"
             
             for m in active_plans:
@@ -216,11 +216,11 @@ async def my_plans_button(callback: CallbackQuery):
                 text += f"   ├ ⏳ {days_left} days remaining\n"
                 text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
             
-            text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+           # text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         # EXPIRING SOON SECTION
         if expiring_soon:
-            text += "━━━━━━━━━━━━━━━━━━━━\n"
+           # text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "⏰ *EXPIRING SOON*\n\n"
             
             for m in expiring_soon:
@@ -249,12 +249,12 @@ async def my_plans_button(callback: CallbackQuery):
                         )
                     ])
             
-            text += "━━━━━━━━━━━━━━━━━━━━\n\n"
+         #   text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
         # EXPIRED SECTION
         if expired_plans:
-            text += "━━━━━━━━━━━━━━━━━━━━\n"
-            text += "❌ *EXPIRED*\n\n"
+         #   text += "━━━━━━━━━━━━━━━━━━━━\n"
+            text += "⌛ *EXPIRED*\n\n"
             
             for m in expired_plans[:5]:
                 channel = await session.get(Channel, m.channel_id)
@@ -265,12 +265,12 @@ async def my_plans_button(callback: CallbackQuery):
                 
                 renew_buttons.append([
                     InlineKeyboardButton(
-                        text=f"🔴 Renew to regain access - {channel.name}",
+                        text=f"✅ Renew to regain access - {channel.name}",
                         callback_data=f"quick_renew_{m.id}"
                     )
                 ])
             
-            text += "━━━━━━━━━━━━━━━━━━━━"
+           # text += "━━━━━━━━━━━━━━━━━━━━"
         
         if renew_buttons:
             keyboard = InlineKeyboardMarkup(inline_keyboard=renew_buttons)
