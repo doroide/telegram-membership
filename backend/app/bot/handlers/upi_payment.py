@@ -13,7 +13,6 @@ from sqlalchemy import select
 from backend.app.db.session import async_session
 from backend.app.db.models import UpiPayment, User, Membership, Payment, Channel
 from backend.app.services.payment_service import UPI_ID, UPI_QR_PATH
-from backend.bot.bot import bot
 
 router = Router()
 
@@ -218,6 +217,8 @@ async def upi_cancel(callback: CallbackQuery, state: FSMContext):
 # ── Admin: notify ─────────────────────────────────────────────────────
 
 async def _notify_admin(upi_payment: UpiPayment, user: User, channel: Channel, tg_user):
+    from backend.bot.bot import bot
+
     admin_ids_str = os.getenv("ADMIN_IDS", "")
     admin_ids = [int(x.strip()) for x in admin_ids_str.split(",") if x.strip().isdigit()]
 
@@ -266,6 +267,8 @@ async def _notify_admin(upi_payment: UpiPayment, user: User, channel: Channel, t
 
 @router.callback_query(F.data.startswith("upi_approve:"))
 async def approve_payment(callback: CallbackQuery):
+    from backend.bot.bot import bot
+
     payment_id = int(callback.data.split(":")[1])
 
     async with async_session() as session:
@@ -373,6 +376,8 @@ async def approve_payment(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("upi_reject:"))
 async def reject_payment(callback: CallbackQuery):
+    from backend.bot.bot import bot
+
     payment_id = int(callback.data.split(":")[1])
 
     async with async_session() as session:
