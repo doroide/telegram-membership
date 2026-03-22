@@ -54,23 +54,23 @@ async def show_upi_payment(
     )
 
     caption = (
-        f"💳 *UPI Payment*\n\n"
-        f"📺 Channel: *{channel_name}*\n"
-        f"📅 Plan: *{validity_label(days)}*\n"
-        f"💰 Amount: *\u20b9{price}*\n\n"
-        f"━━━━━━━━━━━━━━━━\n"
-        f"📲 Pay to UPI ID:\n`{UPI_ID}`\n"
-        f"━━━━━━━━━━━━━━━━\n\n"
-        f"Scan the QR or copy the UPI ID above.\n"
-        f"After paying, tap *I Have Paid* and send your UTR number or screenshot."
+        f"💳 *Complete Your Payment*\n\n"
+        f"📦 *Plan:* {validity_label(days)} Access\n"
+        f"💰 *Amount:* \u20b9{price}\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🏦 *UPI ID:* `{UPI_ID}`\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"📌 *How to Pay:*\n"
+        f"• Scan the QR code above\n"
+        f"• OR pay using the UPI ID\n\n"
+        f"🚀 After payment, click below 👇"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text="✅ I Have Paid",
             callback_data=f"upi_paid:{channel_id}:{days}:{price}"
-        )],
-        [InlineKeyboardButton(text="❌ Cancel", callback_data="upi_cancel")]
+        )]
     ])
 
     try:
@@ -117,11 +117,9 @@ async def upi_paid_clicked(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UpiStates.waiting_for_proof)
 
     await callback.message.answer(
-        "📎 *Send Payment Proof*\n\n"
-        "Please send one of the following:\n"
-        "• *UTR / Transaction ID* — the 12-digit number from your UPI app\n"
-        "• *Screenshot* — photo of the payment success screen\n\n"
-        "_Access is activated after admin verification \u2014 usually within 1 hour._",
+        "📩 *Send Payment Proof*\n\n"
+        "Please send your *payment screenshot* 📸\n\n"
+        "🔥 For any issue, contact admin: @doroide47",
         parse_mode="Markdown"
     )
     try:
@@ -159,7 +157,8 @@ async def receive_proof(message: Message, state: FSMContext):
         screenshot_file_id = None
     else:
         await message.answer(
-            "Please send your *UTR number* (text) or a *screenshot* (photo).",
+            "Please send your *payment screenshot* 📸\n\n"
+            "🔥 For any issue, contact admin: @doroide47",
             parse_mode="Markdown"
         )
         return
@@ -191,27 +190,18 @@ async def receive_proof(message: Message, state: FSMContext):
         await session.refresh(upi_payment)
 
         await message.answer(
-            "✅ *Proof Received!*\n\n"
-            "Your payment is under review.\n"
-            "You'll get your channel access within *1 hour*.\n\n"
-            "Thank you for your patience! \U0001f64f",
-            parse_mode="Markdown"
+            "\u23f3 *Payment Under Review*\n\n"
+            "Thanks\\! Your payment proof has been received \u2705\n\n"
+            "\U0001f50d Our team is verifying your payment\n"
+            "\u23f1 This usually takes *a few minutes*\n\n"
+            "\U0001f4de Need help? Contact admin: @doroide47\n\n"
+            "\U0001f3af You will get access immediately after approval\\.\n"
+            "\U0001f64f Please wait\\.\\.\\.",
+            parse_mode="MarkdownV2"
         )
         await state.clear()
 
         await _notify_admin(upi_payment, user, channel, message.from_user)
-
-
-# ── Cancel ────────────────────────────────────────────────────────────
-
-@router.callback_query(F.data == "upi_cancel")
-async def upi_cancel(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.answer("Payment cancelled.")
-    try:
-        await callback.answer()
-    except Exception:
-        pass
 
 
 # ── Admin: notify ─────────────────────────────────────────────────────
@@ -286,10 +276,8 @@ async def approve_payment(callback: CallbackQuery):
         channel = await session.get(Channel, upi_payment.channel_id)
 
         now = datetime.utcnow()
-        # Lifetime = 100 years
         expiry = now + timedelta(days=36500 if upi_payment.validity_days == 730 else upi_payment.validity_days)
 
-        # Check for existing active membership
         result = await session.execute(
             select(Membership).where(
                 Membership.user_id == upi_payment.user_id,
@@ -318,7 +306,6 @@ async def approve_payment(callback: CallbackQuery):
                 is_active=True
             ))
 
-        # Record in payments table
         session.add(Payment(
             user_id=upi_payment.user_id,
             channel_id=upi_payment.channel_id,
@@ -327,13 +314,11 @@ async def approve_payment(callback: CallbackQuery):
             status="captured"
         ))
 
-        # Update user tier/highest paid
         if upi_payment.amount > float(user.highest_amount_paid or 0):
             user.highest_amount_paid = upi_payment.amount
 
         await session.commit()
 
-        # Generate invite link
         invite_link = None
         try:
             invite = await bot.create_chat_invite_link(
@@ -345,7 +330,6 @@ async def approve_payment(callback: CallbackQuery):
         except Exception as e:
             print(f"[UPI] Invite link error: {e}")
 
-        # Message to user
         user_msg = (
             f"✅ *Payment Approved!*\n\n"
             f"Channel: *{channel.name}*\n"
@@ -366,7 +350,6 @@ async def approve_payment(callback: CallbackQuery):
         except Exception as e:
             print(f"[UPI] User notify failed: {e}")
 
-        # Edit admin message
         admin_label = f"@{callback.from_user.username}" if callback.from_user.username else "Admin"
         await _edit_admin_msg(callback, f"\n\n✅ *APPROVED* by {admin_label}")
         await callback.answer("Approved! User notified and access granted.", show_alert=True)
@@ -400,8 +383,8 @@ async def reject_payment(callback: CallbackQuery):
                 text=(
                     "❌ *Payment Rejected*\n\n"
                     "We couldn't verify your payment proof.\n\n"
-                    "Please try again with a *clear screenshot* or correct UTR number.\n"
-                    "If you believe this is an error, contact support."
+                    "Please try again with a *clear screenshot*.\n"
+                    "🔥 For any issue, contact admin: @doroide47"
                 ),
                 parse_mode="Markdown"
             )
