@@ -92,7 +92,7 @@ async def start_command(message: Message):
                 "We are currently setting up your premium membership 🔐\n"
                 "⚡ This usually takes a short time\\.\n\n"
                 "📩 You will receive your access link here once it's ready\\.\n\n"
-                "🔥 Welcome to VaultX Premium",
+                "🔥 Welcome to Doroide Premium",
                 parse_mode="MarkdownV2"
             )
             return
