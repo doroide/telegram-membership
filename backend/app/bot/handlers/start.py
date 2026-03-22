@@ -90,10 +90,10 @@ async def start_command(message: Message):
             await message.answer(
                 "⏳ *Your Access is Being Activated*\n\n"
                 "We are currently setting up your premium membership 🔐\n"
-                "⚡ This usually takes a short time\\.\n\n"
-                "📩 You will receive your access link here once it's ready\\.\n\n"
+                "⚡ This usually takes a short time.\n\n"
+                "📩 You will receive your access link here once it's ready.\n\n"
                 "🔥 Welcome to Doroide Premium",
-                parse_mode="MarkdownV2"
+                parse_mode="Markdown"
             )
             return
         
