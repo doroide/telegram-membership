@@ -53,7 +53,13 @@ def initialize_razorpay():
         print(f"⚠️ Razorpay initialization failed: {e}")
         return None
 
-#razorpay_client = initialize_razorpay()
+# razorpay_client = initialize_razorpay()  # Disabled — using UPI payments
+razorpay_client = None  # Re-enable when switching back to Razorpay
+
+# ── UPI Payment Config ──────────────────────────────────────────────
+UPI_ID = os.getenv("UPI_ID", "doroide8@okhdfcbank")
+UPI_QR_PATH = os.path.join(os.path.dirname(__file__), "../../assets/upi_qr.jpg")
+# ────────────────────────────────────────────────────────────────────
 
 async def create_payment_link(user_id: int, telegram_id: int, channel_id: int, days: int, price: int):
 
