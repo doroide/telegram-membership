@@ -10,7 +10,7 @@ from aiogram.types import (
 )
 from sqlalchemy import select
 
-from backend.app.db.session import get_session
+from backend.app.db.session import async_session
 from backend.app.db.models import UpiPayment, User, Membership, Payment, Channel
 from backend.app.services.payment_service import UPI_ID, UPI_QR_PATH
 from backend.bot.bot import bot
@@ -165,7 +165,7 @@ async def receive_proof(message: Message, state: FSMContext):
         )
         return
 
-    async for session in get_session():
+    async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == message.from_user.id)
         )
@@ -268,7 +268,7 @@ async def _notify_admin(upi_payment: UpiPayment, user: User, channel: Channel, t
 async def approve_payment(callback: CallbackQuery):
     payment_id = int(callback.data.split(":")[1])
 
-    async for session in get_session():
+    async with async_session() as session:
         upi_payment = await session.get(UpiPayment, payment_id)
         if not upi_payment:
             await callback.answer("Payment not found!", show_alert=True)
@@ -375,7 +375,7 @@ async def approve_payment(callback: CallbackQuery):
 async def reject_payment(callback: CallbackQuery):
     payment_id = int(callback.data.split(":")[1])
 
-    async for session in get_session():
+    async with async_session() as session:
         upi_payment = await session.get(UpiPayment, payment_id)
         if not upi_payment:
             await callback.answer("Payment not found!", show_alert=True)
