@@ -59,6 +59,7 @@ async def show_upi_payment(
         f"💰 *Amount:* \u20b9{price}\n"
         f"━━━━━━━━━━━━━━━\n"
         f"🏦 *UPI ID:* `{UPI_ID}`\n"
+        f"☝️ _Tap & hold UPI ID to copy_\n"
         f"━━━━━━━━━━━━━━━\n\n"
         f"📌 *How to Pay:*\n"
         f"• Scan the QR code above\n"
