@@ -35,7 +35,8 @@ async def admin_panel(message: Message):
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],
         [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")],
         [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")],
-        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")]
+        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="🔗 Send Access Links", callback_data="admin_send_links")]
 
     ])
     
@@ -342,7 +343,8 @@ async def back_to_main(callback: CallbackQuery):
         [InlineKeyboardButton(text="📊 Statistics", callback_data="admin_statistics")],
         [InlineKeyboardButton(text="🔍 Search User", callback_data="admin_search_user")],
         [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")],
-        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")]
+        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="🔗 Send Access Links", callback_data="admin_send_links")]
 
     ])
     
@@ -353,3 +355,89 @@ async def back_to_main(callback: CallbackQuery):
         parse_mode="HTML"
     )
     await callback.answer()
+
+# =====================================================
+# SEND ACCESS LINKS TO USER
+# =====================================================
+
+@router.callback_query(F.data == "admin_send_links")
+async def send_access_links(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🔗 <b>Send Access Links</b>\n\n"
+        "Use command:\n<code>/sendlinks TELEGRAM_ID</code>\n\n"
+        "Example: <code>/sendlinks 123456789</code>\n\n"
+        "Bot will generate and send all active membership invite links to that user.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Back", callback_data="admin_back_main")]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.message(Command("sendlinks"))
+async def send_links_command(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    parts = message.text.split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        await message.answer("Usage: /sendlinks TELEGRAM_ID")
+        return
+
+    target_telegram_id = int(parts[1])
+
+    async with async_session() as session:
+        user_result = await session.execute(
+            select(User).where(User.telegram_id == target_telegram_id)
+        )
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            await message.answer(f"❌ User {target_telegram_id} not found in DB.")
+            return
+
+        memberships_result = await session.execute(
+            select(Membership, Channel)
+            .join(Channel, Membership.channel_id == Channel.id)
+            .where(
+                Membership.user_id == user.id,
+                Membership.is_active == True
+            )
+        )
+        memberships = memberships_result.all()
+
+        if not memberships:
+            await message.answer(f"❌ No active memberships found for user {target_telegram_id}.")
+            return
+
+        from backend.bot.bot import bot
+        success = 0
+        failed = 0
+
+        for membership, channel in memberships:
+            try:
+                invite = await bot.create_chat_invite_link(
+                    chat_id=channel.telegram_chat_id,
+                    member_limit=1,
+                    expire_date=int((datetime.now(timezone.utc) + __import__('datetime').timedelta(hours=24)).timestamp())
+                )
+                await bot.send_message(
+                    chat_id=target_telegram_id,
+                    text=(
+                        f"✅ *Your Access Link*\n\n"
+                        f"📺 Channel: *{channel.name}*\n"
+                        f"🔗 {invite.invite_link}\n\n"
+                        f"_Link expires in 24 hours._"
+                    ),
+                    parse_mode="Markdown"
+                )
+                success += 1
+            except Exception as e:
+                print(f"[SendLinks] Failed for channel {channel.name}: {e}")
+                failed += 1
+
+        await message.answer(
+            f"✅ Sent {success} link(s) to user {target_telegram_id}.\n"
+            f"❌ Failed: {failed}"
+        )

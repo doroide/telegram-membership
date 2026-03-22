@@ -353,7 +353,7 @@ async def approve_payment(callback: CallbackQuery):
 
         admin_label = f"@{callback.from_user.username}" if callback.from_user.username else "Admin"
         await _edit_admin_msg(callback, f"\n\n✅ *APPROVED* by {admin_label}")
-        await callback.answer("Approved! User notified and access granted.", show_alert=True)
+        await callback.answer("✅ Approved!")
 
 
 # ── Admin: Reject ─────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ async def reject_payment(callback: CallbackQuery):
 
         admin_label = f"@{callback.from_user.username}" if callback.from_user.username else "Admin"
         await _edit_admin_msg(callback, f"\n\n❌ *REJECTED* by {admin_label}")
-        await callback.answer("Rejected. User notified.", show_alert=True)
+        await callback.answer("❌ Rejected.")
 
 
 # ── Helper: edit admin message after action ───────────────────────────

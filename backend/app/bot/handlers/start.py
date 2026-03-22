@@ -76,6 +76,26 @@ async def start_command(message: Message):
                 "Please check back later!"
             )
             return
+
+        # Check if user has any active memberships
+        active_check = await session.execute(
+            select(Membership).where(
+                Membership.user_id == user.id,
+                Membership.is_active == True
+            )
+        )
+        has_active = active_check.scalar_one_or_none()
+
+        if not has_active:
+            await message.answer(
+                "⏳ *Your Access is Being Activated*\n\n"
+                "We are currently setting up your premium membership 🔐\n"
+                "⚡ This usually takes a short time\\.\n\n"
+                "📩 You will receive your access link here once it's ready\\.\n\n"
+                "🔥 Welcome to VaultX Premium",
+                parse_mode="MarkdownV2"
+            )
+            return
         
         # Build channel selection keyboard
        # Fixed channel emojis by channel ID
