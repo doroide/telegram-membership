@@ -53,7 +53,7 @@ def initialize_razorpay():
         print(f"⚠️ Razorpay initialization failed: {e}")
         return None
 
-razorpay_client = initialize_razorpay()
+#razorpay_client = initialize_razorpay()
 
 async def create_payment_link(user_id: int, telegram_id: int, channel_id: int, days: int, price: int):
 

@@ -132,3 +132,22 @@ class UpsellAttempt(Base):
     is_manual = Column(Boolean, default=False)  # True if created by admin
     created_by_admin = Column(Integer, nullable=True)  # Admin user ID
     custom_message = Column(Text, nullable=True)  # Custom message from admin
+from datetime import datetime
+
+class UpiPayment(Base):
+    __tablename__ = "upi_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    channel_id = Column(Integer, ForeignKey("channels.id"))
+    amount = Column(Integer, nullable=False)
+    validity_days = Column(Integer, nullable=False)
+    proof_type = Column(String, nullable=False)       # "utr" or "screenshot"
+    utr_number = Column(String, nullable=True)
+    screenshot_file_id = Column(String, nullable=True)
+    status = Column(String, default="pending")        # pending / approved / rejected
+    admin_note = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="upi_payments")
+    channel = relationship("Channel", backref="upi_payments")

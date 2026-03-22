@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from backend.app.db.session import async_session
 from backend.app.db.models import Channel, User
+from backend.app.bot.handlers.upi_payment import show_upi_payment
 from backend.app.services.payment_service import create_payment_link
 from backend.app.services.tier_engine import (
     get_plans_for_user,
