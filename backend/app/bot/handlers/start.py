@@ -84,7 +84,7 @@ async def start_command(message: Message):
                 Membership.is_active == True
             )
         )
-        has_active = active_check.scalar_one_or_none()
+        has_active = active_check.scalars().first()
 
         if not has_active:
             await message.answer(
