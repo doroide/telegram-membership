@@ -1,5 +1,6 @@
 import os
 from aiogram import Router, F
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
@@ -7,7 +8,6 @@ from sqlalchemy import select
 from backend.app.db.session import async_session
 from backend.app.db.models import Channel, User
 from backend.app.bot.handlers.upi_payment import show_upi_payment
-from backend.app.services.payment_service import create_payment_link
 from backend.app.services.tier_engine import (
     get_plans_for_user,
     format_plan_display
@@ -83,7 +83,7 @@ async def show_channel_plans(callback: CallbackQuery):
             try:
                 await callback.message.edit_text(
                     f"📺 <b>{channel.name}</b>\n\n"
-                    f"Choose your subscription plan:",
+                    f"Choose your subscription plan:\n"
                     f"⚡ Instant access after payment",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
                     parse_mode="HTML"
@@ -100,8 +100,8 @@ async def show_channel_plans(callback: CallbackQuery):
 # HANDLE PLAN PURCHASE
 # =====================================================
 @router.callback_query(F.data.startswith("buy_"))
-async def handle_plan_purchase(callback: CallbackQuery):
-    """Create payment link when user selects a plan"""
+async def handle_plan_purchase(callback: CallbackQuery, state: FSMContext):
+    """Route to UPI payment when user selects a plan"""
     print("=" * 60)
     print("🎯 PAYMENT HANDLER TRIGGERED")
     print(f"   Callback data: {callback.data}")
@@ -147,53 +147,16 @@ async def handle_plan_purchase(callback: CallbackQuery):
                 return
             
             print(f"✅ Found user: ID={user.id}, Telegram ID={user.telegram_id}")
-            
-            validity_display = {
-                30: "1 Month",
-                90: "3 Months",
-                120: "4 Months",
-                180: "6 Months",
-                365: "1 Year",
-                730: "Lifetime"
-            }.get(validity_days, f"{validity_days} days")
-            
-            print(f"💰 Creating payment link with:")
-            print(f"   user_id: {user.id}")
-            print(f"   telegram_id: {user.telegram_id}")
-            print(f"   channel_id: {channel.id}")
-            print(f"   days: {validity_days}")
-            print(f"   price: {amount}")
-            
-            payment_link = await create_payment_link(
-                user_id=user.id,
-                telegram_id=user.telegram_id,
+            print(f"✅ Routing to UPI payment flow")
+
+            await show_upi_payment(
+                callback=callback,
                 channel_id=channel.id,
                 days=validity_days,
-                price=amount
+                price=amount,
+                channel_name=channel.name,
+                state=state
             )
-            
-            print(f"✅ Payment link created: {payment_link}")
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Pay Now", url=payment_link)],
-                [InlineKeyboardButton(text="🔙 Back", callback_data=f"userch_{channel_id}")]
-            ])
-            
-            try:
-                await callback.message.edit_text(
-                    f"💳 <b>Payment Details</b>\n\n"
-                    f"📺 Channel: {channel.name}\n"
-                    f"📦 Plan: {validity_display}\n"
-                    f"💰 Amount: ₹{amount}\n\n"
-                    f"⚡ Instant access after payment",
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
-                print("✅ Message sent to user")
-                await callback.answer()
-            except TelegramBadRequest as e:
-                print(f"⚠️ TelegramBadRequest: {e}")
-                await callback.answer()
     
     except Exception as e:
         print("=" * 60)
