@@ -380,64 +380,133 @@ async def send_links_command(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
 
-    parts = message.text.split()
-    if len(parts) != 2 or not parts[1].isdigit():
-        await message.answer("Usage: /sendlinks TELEGRAM_ID")
+    args = message.text.strip().split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("Usage: /sendlinks TELEGRAM_ID or /sendlinks ID1,ID2,ID3")
         return
 
-    target_telegram_id = int(parts[1])
-
-    async with async_session() as session:
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == target_telegram_id)
-        )
-        user = user_result.scalar_one_or_none()
-
-        if not user:
-            await message.answer(f"❌ User {target_telegram_id} not found in DB.")
+    raw_ids = args[1].split(",")
+    telegram_ids = []
+    for x in raw_ids:
+        x = x.strip()
+        if not x.isdigit():
+            await message.answer(f"❌ Invalid ID: {x}")
             return
+        telegram_ids.append(int(x))
 
-        memberships_result = await session.execute(
-            select(Membership, Channel)
-            .join(Channel, Membership.channel_id == Channel.id)
-            .where(
-                Membership.user_id == user.id,
-                Membership.is_active == True
+    from backend.bot.bot import bot
+
+    # ── SINGLE USER (existing behavior) ──────────────────
+    if len(telegram_ids) == 1:
+        target_telegram_id = telegram_ids[0]
+        async with async_session() as session:
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == target_telegram_id)
             )
-        )
-        memberships = memberships_result.all()
+            user = user_result.scalar_one_or_none()
 
-        if not memberships:
-            await message.answer(f"❌ No active memberships found for user {target_telegram_id}.")
-            return
+            if not user:
+                await message.answer(f"❌ User {target_telegram_id} not found in DB.")
+                return
 
-        from backend.bot.bot import bot
-        success = 0
-        failed = 0
+            memberships_result = await session.execute(
+                select(Membership, Channel)
+                .join(Channel, Membership.channel_id == Channel.id)
+                .where(Membership.user_id == user.id, Membership.is_active == True)
+            )
+            memberships = memberships_result.all()
 
-        for membership, channel in memberships:
-            try:
-                invite = await bot.create_chat_invite_link(
-                    chat_id=channel.telegram_chat_id,
-                    member_limit=1,
-                    expire_date=int((datetime.now(timezone.utc) + __import__('datetime').timedelta(hours=24)).timestamp())
+            if not memberships:
+                await message.answer(f"❌ No active memberships for {target_telegram_id}.")
+                return
+
+            success, failed = 0, 0
+            for membership, channel in memberships:
+                try:
+                    invite = await bot.create_chat_invite_link(
+                        chat_id=channel.telegram_chat_id,
+                        member_limit=1,
+                        expire_date=int((datetime.now(timezone.utc) + __import__('datetime').timedelta(hours=24)).timestamp())
+                    )
+                    await bot.send_message(
+                        chat_id=target_telegram_id,
+                        text=(
+                            f"✅ *Your Access Link*\n\n"
+                            f"📺 Channel: *{channel.name}*\n"
+                            f"🔗 {invite.invite_link}\n\n"
+                            f"_Link expires in 24 hours._"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                    success += 1
+                except Exception as e:
+                    print(f"[SendLinks] Failed for channel {channel.name}: {e}")
+                    failed += 1
+
+            await message.answer(
+                f"✅ Sent {success} link(s) to user {target_telegram_id}.\n"
+                f"❌ Failed: {failed}"
+            )
+
+    # ── BATCH USERS ───────────────────────────────────────
+    else:
+        status_lines = []
+        total_success, total_failed = 0, 0
+
+        for telegram_id in telegram_ids:
+            async with async_session() as session:
+                user_result = await session.execute(
+                    select(User).where(User.telegram_id == telegram_id)
                 )
-                await bot.send_message(
-                    chat_id=target_telegram_id,
-                    text=(
-                        f"✅ *Your Access Link*\n\n"
-                        f"📺 Channel: *{channel.name}*\n"
-                        f"🔗 {invite.invite_link}\n\n"
-                        f"_Link expires in 24 hours._"
-                    ),
-                    parse_mode="Markdown"
-                )
-                success += 1
-            except Exception as e:
-                print(f"[SendLinks] Failed for channel {channel.name}: {e}")
-                failed += 1
+                user = user_result.scalar_one_or_none()
 
-        await message.answer(
-            f"✅ Sent {success} link(s) to user {target_telegram_id}.\n"
-            f"❌ Failed: {failed}"
-        )
+                if not user:
+                    status_lines.append(f"❌ {telegram_id} — Not found in DB")
+                    total_failed += 1
+                    continue
+
+                memberships_result = await session.execute(
+                    select(Membership, Channel)
+                    .join(Channel, Membership.channel_id == Channel.id)
+                    .where(Membership.user_id == user.id, Membership.is_active == True)
+                )
+                rows = memberships_result.all()
+
+                if not rows:
+                    status_lines.append(f"❌ {telegram_id} — No active memberships")
+                    total_failed += 1
+                    continue
+
+                sent, failed = 0, 0
+                channel_lines = []
+                for membership, channel in rows:
+                    try:
+                        invite = await bot.create_chat_invite_link(
+                            chat_id=channel.telegram_chat_id,
+                            member_limit=1,
+                            expire_date=int((datetime.now(timezone.utc) + __import__('datetime').timedelta(hours=24)).timestamp())
+                        )
+                        await bot.send_message(
+                            chat_id=telegram_id,
+                            text=(
+                                f"✅ *Your Access Link*\n\n"
+                                f"📺 Channel: *{channel.name}*\n"
+                                f"🔗 {invite.invite_link}\n\n"
+                                f"_Link expires in 24 hours._"
+                            ),
+                            parse_mode="Markdown"
+                        )
+                        sent += 1
+                        channel_lines.append(f"   ✅ {channel.name}")
+                    except Exception as e:
+                        print(f"[SendLinks] Failed for {telegram_id} - {channel.name}: {e}")
+                        failed += 1
+                        channel_lines.append(f"   ❌ {channel.name}")
+
+                status_lines.append(f"✅ {telegram_id} — Sent {sent}/{sent+failed} link(s)")
+                status_lines.extend(channel_lines)
+                total_success += 1
+
+        summary = "\n".join(status_lines)
+        summary += f"\n\n📊 Done! Success: {total_success} | Failed: {total_failed}"
+        await message.answer(summary)
