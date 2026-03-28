@@ -37,7 +37,8 @@ async def admin_panel(message: Message):
         [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")],
         [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="🔗 Send Access Links", callback_data="admin_send_links")],
-        [InlineKeyboardButton(text="👤 User Info", callback_data="admin_user_info")]
+        [InlineKeyboardButton(text="👤 User Info", callback_data="admin_user_info")],
+        [InlineKeyboardButton(text="📥 Import Users CSV", callback_data="admin_import_csv")]
 
     ])
     
@@ -346,7 +347,8 @@ async def back_to_main(callback: CallbackQuery):
         [InlineKeyboardButton(text="🦵 Kick User", callback_data="admin_kick_user")],
         [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="🔗 Send Access Links", callback_data="admin_send_links")],
-        [InlineKeyboardButton(text="👤 User Info", callback_data="admin_user_info")]
+        [InlineKeyboardButton(text="👤 User Info", callback_data="admin_user_info")],
+        [InlineKeyboardButton(text="📥 Import Users CSV", callback_data="admin_import_csv")]
 
     ])
     
@@ -663,3 +665,222 @@ async def send_one_link(callback: CallbackQuery):
     except Exception as e:
         print(f"[UserInfo] Send link failed: {e}")
         await callback.answer(f"❌ Failed: {e}", show_alert=True)
+
+# =====================================================
+# CSV IMPORT USERS
+# =====================================================
+
+@router.callback_query(F.data == "admin_import_csv")
+async def import_csv_prompt(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📥 <b>Import Users via CSV</b>\n\n"
+        "Send a <b>.csv file</b> with this exact format:\n\n"
+        "<code>telegram_id,name,channel_id,validity_days,amount,start_date,expiry_date</code>\n\n"
+        "Example:\n"
+        "<code>1030866345,PK,12,548,599,2026-03-21,2027-09-20</code>\n"
+        "<code>1441405972,A,13,999,399,2026-03-06,2028-11-29</code>\n\n"
+        "📌 Date format: <b>YYYY-MM-DD</b>\n"
+        "📌 Send the file directly in this chat\n"
+        "📌 Bot will import all rows and send invite links automatically",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Back", callback_data="admin_back_main")]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.message(F.document)
+async def handle_csv_import(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    if not message.document.file_name.endswith(".csv"):
+        return
+
+    from backend.bot.bot import bot
+    from datetime import timedelta
+    import csv
+    import io
+
+    await message.answer("⏳ Processing CSV... please wait.")
+
+    # Download file
+    try:
+        file = await bot.get_file(message.document.file_id)
+        file_bytes = await bot.download_file(file.file_path)
+        content = file_bytes.read().decode("utf-8")
+    except Exception as e:
+        await message.answer(f"❌ Failed to download file: {e}")
+        return
+
+    reader = csv.DictReader(io.StringIO(content))
+
+    success_lines = []
+    skipped_lines = []
+    failed_lines = []
+    failed_csv_rows = []
+
+    total_rows = 0
+
+    for row in reader:
+        total_rows += 1
+        try:
+            telegram_id = int(row["telegram_id"].strip())
+            name = row["name"].strip()
+            channel_id = int(row["channel_id"].strip())
+            validity_days = int(row["validity_days"].strip())
+            amount = int(row["amount"].strip())
+            start_date = datetime.strptime(row["start_date"].strip(), "%Y-%m-%d")
+            expiry_date = datetime.strptime(row["expiry_date"].strip(), "%Y-%m-%d")
+            is_active = expiry_date.date() >= datetime.now(timezone.utc).date()
+        except Exception as e:
+            failed_lines.append(f"❌ Row error: {row} — {e}")
+            failed_csv_rows.append(row)
+            continue
+
+        async with async_session() as session:
+            # Upsert user
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            user = user_result.scalar_one_or_none()
+
+            if not user:
+                # Auto tier based on amount
+                if amount >= 1499:
+                    tier = 4
+                elif amount >= 999:
+                    tier = 3
+                elif amount >= 499:
+                    tier = 2
+                else:
+                    tier = 1
+
+                user = User(
+                    telegram_id=telegram_id,
+                    full_name=name,
+                    current_tier=tier,
+                    highest_amount_paid=amount
+                )
+                session.add(user)
+                await session.flush()
+            else:
+                if amount > float(user.highest_amount_paid or 0):
+                    user.highest_amount_paid = amount
+
+            # Check duplicate membership
+            existing = await session.execute(
+                select(Membership).where(
+                    Membership.user_id == user.id,
+                    Membership.channel_id == channel_id,
+                    Membership.is_active == True
+                )
+            )
+            existing = existing.scalar_one_or_none()
+
+            channel = await session.get(Channel, channel_id)
+            channel_name = channel.name if channel else f"Channel {channel_id}"
+
+            if existing:
+                skipped_lines.append(
+                    f"⚠️ {name} ({telegram_id})\n"
+                    f"   {channel_name} — already has active membership"
+                )
+                await session.commit()
+                continue
+
+            # Insert membership
+            session.add(Membership(
+                user_id=user.id,
+                channel_id=channel_id,
+                validity_days=validity_days,
+                amount_paid=amount,
+                start_date=start_date,
+                expiry_date=expiry_date,
+                is_active=is_active
+            ))
+            await session.commit()
+
+            # Send invite link
+            if is_active and channel:
+                try:
+                    invite = await bot.create_chat_invite_link(
+                        chat_id=channel.telegram_chat_id,
+                        member_limit=1,
+                        expire_date=int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp())
+                    )
+                    await bot.send_message(
+                        chat_id=telegram_id,
+                        text=(
+                            f"✅ *Your Access Link*\n\n"
+                            f"📺 Channel: *{channel_name}*\n"
+                            f"🔗 {invite.invite_link}\n\n"
+                            f"_Link expires in 24 hours._"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                    success_lines.append(
+                        f"✅ {name} ({telegram_id})\n"
+                        f"   {channel_name} — ✅ Link Sent"
+                    )
+                except Exception as e:
+                    failed_lines.append(
+                        f"❌ {name} ({telegram_id})\n"
+                        f"   {channel_name} — {str(e)}"
+                    )
+                    failed_csv_rows.append(row)
+            else:
+                success_lines.append(
+                    f"✅ {name} ({telegram_id})\n"
+                    f"   {channel_name} — Added (expired, no link sent)"
+                )
+
+    # Build report
+    report = "📊 <b>CSV Import Report</b>\n━━━━━━━━━━━━━━━\n\n"
+
+    if success_lines:
+        report += "✅ <b>SUCCESSFULLY ADDED &amp; LINK SENT</b>\n"
+        report += "\n".join(success_lines) + "\n\n"
+
+    if skipped_lines:
+        report += "⚠️ <b>ALREADY EXISTS (Skipped)</b>\n"
+        report += "\n".join(skipped_lines) + "\n\n"
+
+    if failed_lines:
+        report += "❌ <b>FAILED</b>\n"
+        report += "\n".join(failed_lines) + "\n\n"
+
+    report += (
+        f"━━━━━━━━━━━━━━━\n"
+        f"📈 Total Rows: {total_rows}\n"
+        f"✅ Success: {len(success_lines)}\n"
+        f"⚠️ Skipped: {len(skipped_lines)}\n"
+        f"❌ Failed: {len(failed_lines)}\n"
+        f"🔗 Links Sent: {len([l for l in success_lines if 'Link Sent' in l])}"
+    )
+
+    await message.answer(report, parse_mode="HTML")
+
+    # Send failed CSV if any
+    if failed_csv_rows:
+        failed_content = "telegram_id,name,channel_id,validity_days,amount,start_date,expiry_date\n"
+        for r in failed_csv_rows:
+            failed_content += ",".join([
+                str(r.get("telegram_id", "")),
+                str(r.get("name", "")),
+                str(r.get("channel_id", "")),
+                str(r.get("validity_days", "")),
+                str(r.get("amount", "")),
+                str(r.get("start_date", "")),
+                str(r.get("expiry_date", ""))
+            ]) + "\n"
+
+        failed_bytes = io.BytesIO(failed_content.encode("utf-8"))
+        failed_bytes.name = "failed_users.csv"
+
+        from aiogram.types import BufferedInputFile
+        await message.answer_document(
+            document=BufferedInputFile(failed_bytes.getvalue(), filename="failed_users.csv"),
+            caption="❌ These users failed — fix and re-import"
+        )
