@@ -87,14 +87,17 @@ async def start_command(message: Message):
         has_active = active_check.scalars().first()
 
         if not has_active:
-            await message.answer(
-                "⏳ *Your Access is Being Activated*\n\n"
-                "We are currently setting up your premium membership 🔐\n"
-                "⚡ This usually takes a short time.\n\n"
-                "📩 You will receive your access link here once it's ready.\n\n"
-                "🔥 Welcome to Doroide Premium",
-                parse_mode="Markdown"
-            )
+            try:
+                await message.answer(
+                    "⏳ *Your Access is Being Activated*\n\n"
+                    "We are currently setting up your premium membership 🔐\n"
+                    "⚡ This usually takes a short time.\n\n"
+                    "📩 You will receive your access link here once it's ready.\n\n"
+                    "🔥 Welcome to Doroide Premium",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                print(f"[START] Could not send activation message: {e}")
             return
         
         # Build channel selection keyboard

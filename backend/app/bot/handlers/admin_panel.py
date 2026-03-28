@@ -381,6 +381,11 @@ async def send_access_links(callback: CallbackQuery):
 async def send_links_command(message: Message):
     if message.from_user.id not in ADMIN_IDS:
         return
+    
+
+    if not message.text:
+       await message.answer("❌ Please send a valid command.")
+       return
 
     args = message.text.strip().split(maxsplit=1)
     if len(args) < 2:
