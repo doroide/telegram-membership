@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone
+	from datetime import datetime, timezone
 from aiogram import Router, F	
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
@@ -775,7 +775,7 @@ async def handle_csv_import(message: Message):
                     Membership.user_id == user.id,
                     Membership.channel_id == channel_id,
                     Membership.is_active == True
-                )
+                ).limit(1)
             )
             existing = existing.scalar_one_or_none()
 
