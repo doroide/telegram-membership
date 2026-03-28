@@ -120,7 +120,7 @@ async def start_command(message: Message):
                         Membership.user_id == user.id,
                         Membership.channel_id == channel.id,
                         Membership.is_active == True
-                    )
+                    ).limit(1)
                 )
                 has_active = membership_check.scalar_one_or_none() is not None
 
