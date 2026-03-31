@@ -51,7 +51,7 @@ async def show_channel_plans(callback: CallbackQuery):
                 await callback.answer("User not found. Please start with /start", show_alert=True)
                 return
             
-            plans = get_plans_for_user(user, channel_id)
+            plans = await get_plans_for_user(user, channel_id, session)
             
             if not plans:
                 await callback.answer("No plans available", show_alert=True)

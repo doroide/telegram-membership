@@ -1,4 +1,11 @@
 # =========================================================
+# SYSTEM 1 - TIER ENGINE
+# =========================================================
+
+from sqlalchemy import select, func
+from backend.app.db.models import Membership
+
+# =========================================================
 # TIER PRICING CONFIGURATION
 # =========================================================
 
@@ -10,8 +17,8 @@ TIER_PLANS = {
             {"validity": "4M", "days": 120, "price": 199},
             {"validity": "6M", "days": 180, "price": 299},
             {"validity": "1Y", "days": 365, "price": 599},
-            {"validity": "Lifetime", "days": 730, "price": 999},
-        ]
+            {"validity": "Lifetime", "days": 9999, "price": 999},
+        ],
     },
     2: {
         "name": "Tier 2 (Standard)",
@@ -20,8 +27,8 @@ TIER_PLANS = {
             {"validity": "4M", "days": 120, "price": 299},
             {"validity": "6M", "days": 180, "price": 499},
             {"validity": "1Y", "days": 365, "price": 799},
-            {"validity": "Lifetime", "days": 730, "price": 999},
-        ]
+            {"validity": "Lifetime", "days": 9999, "price": 999},
+        ],
     },
     3: {
         "name": "Tier 3 (Premium)",
@@ -30,8 +37,8 @@ TIER_PLANS = {
             {"validity": "3M", "days": 90, "price": 399},
             {"validity": "6M", "days": 180, "price": 599},
             {"validity": "1Y", "days": 365, "price": 799},
-            {"validity": "Lifetime", "days": 730, "price": 999},
-        ]
+            {"validity": "Lifetime", "days": 9999, "price": 999},
+        ],
     },
     4: {
         "name": "Tier 4 (Elite)",
@@ -40,21 +47,17 @@ TIER_PLANS = {
             {"validity": "3M", "days": 90, "price": 599},
             {"validity": "6M", "days": 180, "price": 899},
             {"validity": "1Y", "days": 365, "price": 1199},
-            {"validity": "Lifetime", "days": 730, "price": 1499},
-        ]
-    }
+            {"validity": "Lifetime", "days": 9999, "price": 1499},
+        ],
+    },
 }
 
 
 # =========================================================
-# TIER CALCULATION FUNCTIONS
+# TIER CALCULATION
 # =========================================================
 
 def calculate_tier_from_amount(amount: int) -> int:
-    """
-    Determine tier based on amount paid
-    Returns tier number (1-4)
-    """
     if amount >= 299:
         return 4
     elif amount >= 199:
@@ -65,108 +68,130 @@ def calculate_tier_from_amount(amount: int) -> int:
         return 1
 
 
+# =========================================================
+# LIFETIME ESCALATION
+# =========================================================
+
+async def get_lifetime_channel_count(session, user_id: int) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(Membership)
+        .where(
+            Membership.user_id == user_id,
+            Membership.validity_days == 9999
+        )
+    )
+    return result.scalar() or 0
+
+
+def round_price(price: float) -> int:
+    price = int(price)
+    remainder = price % 100
+
+    if remainder < 50:
+        return price - remainder + 99
+    else:
+        return price - remainder + 199
+
+
+def calculate_escalated_price(base_price: int, lifetime_count: int) -> int:
+    """
+    Escalation starts after 3 lifetime purchases
+    """
+    if lifetime_count < 3:
+        return base_price
+
+    price = base_price
+
+    for _ in range(lifetime_count - 2):
+        price = round_price(price * 1.20)
+
+    return price
+
+
+# =========================================================
+# USER TIER FOR CHANNEL
+# =========================================================
+
 def get_user_tier_for_channel(user, channel_id: int) -> int:
-    """
-    Get the appropriate tier for a user viewing a specific channel
-    
-    Rules:
-    - Channel 1: Uses channel_1_tier if set, else current_tier
-    - Channels 2-10: Minimum Tier 3, unless user has Tier 4
-    - Lifetime members: See only lifetime plans at their lifetime_amount tier
-    """
-    # If user is lifetime member, return tier based on lifetime amount
+
     if user.is_lifetime_member and user.lifetime_amount:
         return calculate_tier_from_amount(user.lifetime_amount)
-    
-    # Channel 1 special logic
+
     if channel_id == 1 and user.channel_1_tier:
         return user.channel_1_tier
-    
-    # Channels 2-10: Minimum Tier 3
+
     if channel_id > 1:
         return max(user.current_tier, 3)
-    
-    # Default to current tier
+
     return user.current_tier
 
 
-def get_plans_for_user(user, channel_id: int, lifetime_only: bool = False):
-    """
-    Get available plans for a user based on their tier
-    
-    Args:
-        user: User object
-        channel_id: Channel ID (1-10)
-        lifetime_only: If True, return only lifetime plans
-    
-    Returns:
-        List of plan dictionaries with validity, days, price
-    """
+# =========================================================
+# GET PLANS FOR USER
+# =========================================================
+
+async def get_plans_for_user(user, channel_id: int, session):
+
     tier = get_user_tier_for_channel(user, channel_id)
-    
+
     plans = TIER_PLANS[tier]["plans"]
-    
-    # If user is lifetime member, show only lifetime plans
-    if user.is_lifetime_member or lifetime_only:
-        return [p for p in plans if p["validity"] == "Lifetime"]
-    
+
+    # =====================================================
+    # LIFETIME MODE
+    # =====================================================
+
+    if user.is_lifetime_member:
+
+        lifetime_count = await get_lifetime_channel_count(session, user.id)
+
+        if user.lifetime_amount and user.lifetime_amount > 999:
+            base_price = int(user.lifetime_amount)
+        else:
+            base_price = 999
+
+        price = calculate_escalated_price(base_price, lifetime_count)
+
+        return [{
+            "validity": "Lifetime",
+            "days": 9999,
+            "price": price
+        }]
+
     return plans
 
 
-def update_user_tier(user, amount_paid: int, channel_id: int, is_lifetime: bool = False):
-    """
-    Update user's tier based on new payment
-    
-    Rules:
-    - Track highest amount paid
-    - Channel 1 first purchase locks channel_1_tier
-    - Any payment >= 299 upgrades to Tier 4
-    - Lifetime purchases set is_lifetime_member = True
-    """
-    # Update highest amount
+# =========================================================
+# UPDATE USER TIER
+# =========================================================
+
+def update_user_tier(user, amount_paid: int, channel_id: int, is_lifetime=False):
+
     if amount_paid > user.highest_amount_paid:
         user.highest_amount_paid = amount_paid
-    
-    # Lock Channel 1 tier on first purchase
+
     if channel_id == 1 and not user.channel_1_tier:
         user.channel_1_tier = calculate_tier_from_amount(amount_paid)
-    
-    # Upgrade to Tier 4 if payment >= 299
+
     if amount_paid >= 299:
         user.current_tier = 4
     elif user.current_tier < 3:
-        # Ensure minimum Tier 3 for non-Channel-1 purchases
         user.current_tier = max(user.current_tier, calculate_tier_from_amount(amount_paid))
-    
-    # Handle lifetime membership
+
     if is_lifetime:
         user.is_lifetime_member = True
         user.lifetime_amount = amount_paid
 
 
-def get_price_for_validity(tier: int, validity_days: int) -> int:
-    """
-    Get price for a specific tier and validity
-    
-    Args:
-        tier: Tier number (1-4)
-        validity_days: Number of days (30, 90, 120, 180, 365, 730)
-    
-    Returns:
-        Price in rupees, or None if not found
-    """
-    plans = TIER_PLANS.get(tier, {}).get("plans", [])
-    
-    for plan in plans:
-        if plan["days"] == validity_days:
-            return plan["price"]
-    
-    return None
+# =========================================================
+# FORMAT PLAN DISPLAY
+# =========================================================
 
+def format_plan_display(plan: dict):
 
-def format_plan_display(plan: dict) -> str:
     validity = plan["validity"]
     price = plan["price"]
+
     labels = {
         "1M": "1 Month",
         "3M": "3 Months",
@@ -174,6 +199,7 @@ def format_plan_display(plan: dict) -> str:
         "6M": "6 Months",
         "1Y": "1 Year",
     }
+
     if validity == "Lifetime":
         return f"💎 Lifetime Access — ₹{price}"
     else:
