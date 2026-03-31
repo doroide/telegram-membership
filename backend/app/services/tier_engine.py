@@ -56,6 +56,13 @@ TIER_PLANS = {
 # =========================================================
 # TIER CALCULATION
 # =========================================================
+def get_price_for_validity(tier: int, validity_days: int):
+    """Get price for a specific tier and validity days"""
+    plans = TIER_PLANS.get(tier, {}).get("plans", [])
+    for plan in plans:
+        if plan["days"] == validity_days:
+            return plan["price"]
+    return None
 
 def calculate_tier_from_amount(amount: int) -> int:
     if amount >= 299:
