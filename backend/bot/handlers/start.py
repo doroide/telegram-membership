@@ -4,7 +4,8 @@ from aiogram.filters import CommandStart
 
 from backend.app.db.session import async_session
 from backend.app.db.models import User
-#samiksh
+
+# Admin ID
 ADMIN_ID = 5793624035
 
 router = Router()
@@ -29,9 +30,32 @@ async def start(message: Message):
         )
         return
 
-    # If normal user
+    # Normal user start page
+    first_name = message.from_user.first_name
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🚀 Membership")],
+            [KeyboardButton(text="📋 My Plans")],
+            [KeyboardButton(text="📞 Contact Admin")]
+        ],
+        resize_keyboard=True
+    )
+
     await message.answer(
-        "👋 Welcome!\nUse /buy to purchase a plan.\nUse /status to check your membership status."
+        f"""👋 Welcome, {first_name}!
+
+🎬 Premium Content Collections
+
+Steps to get membership:
+
+1️⃣ Click Membership
+2️⃣ Select Channel
+3️⃣ Choose Plan
+4️⃣ Complete Payment
+
+👇 Tap Membership to get started""",
+        reply_markup=keyboard
     )
 
 
