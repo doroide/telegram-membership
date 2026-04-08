@@ -1,7 +1,7 @@
 import os
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy import select
 
@@ -20,6 +20,83 @@ CHANNEL_EMOJIS = {
     16: "🔞", 17: "💫", 18: "💎", 19: "🎭",
     20: "📸", 21: "🌶️"
 }
+
+
+# =====================================================
+# REUSABLE: SEND CHANNEL LIST
+# =====================================================
+
+async def send_channel_list(message: Message, telegram_id: int, edit: bool = False):
+    """Reusable function to show channel list — called from start.py Membership button."""
+    async with async_session() as session:
+        user_result = await session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            text = "❌ User not found. Please send /start first."
+            if edit:
+                await message.edit_text(text)
+            else:
+                await message.answer(text)
+            return
+
+        from backend.app.db.models import Membership
+        membership_result = await session.execute(
+            select(Membership.channel_id)
+            .where(Membership.user_id == user.id)
+            .distinct()
+        )
+        purchased_channel_ids = [row[0] for row in membership_result.all()]
+
+        channel_result = await session.execute(
+            select(Channel)
+            .where(
+                Channel.is_active == True,
+                (Channel.is_public == True) | (Channel.id.in_(purchased_channel_ids))
+            )
+            .order_by(Channel.id)
+        )
+        channels = channel_result.scalars().all()
+
+    if not channels:
+        text = "❌ No channels available at the moment.\nPlease check back later!"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")]
+        ])
+        if edit:
+            await message.edit_text(text, reply_markup=kb)
+        else:
+            await message.answer(text, reply_markup=kb)
+        return
+
+    keyboard = []
+    for idx, channel in enumerate(channels, 1):
+        ch_emoji = CHANNEL_EMOJIS.get(channel.id, "📺")
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"{idx}. {ch_emoji} {channel.name}",
+                callback_data=f"userch_{channel.id}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")
+    ])
+
+    text = (
+        "📺 <b>Available Channels</b>\n\n"
+        "👇 Select a channel to view plans:"
+    )
+
+    if edit:
+        try:
+            await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="HTML")
+        except TelegramBadRequest:
+            await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="HTML")
+    else:
+        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="HTML")
 
 
 # =====================================================
@@ -178,74 +255,10 @@ async def handle_plan_purchase(callback: CallbackQuery, state: FSMContext):
 async def back_to_channels(callback: CallbackQuery):
     """Return to channel selection"""
     try:
-        telegram_id = callback.from_user.id
-        
-        async with async_session() as session:
-            user_result = await session.execute(
-                select(User).where(User.telegram_id == telegram_id)
-            )
-            user = user_result.scalar_one_or_none()
-            
-            if not user:
-                await callback.answer("User not found", show_alert=True)
-                return
-            
-            from backend.app.db.models import Membership
-            membership_result = await session.execute(
-                select(Membership.channel_id)
-                .where(Membership.user_id == user.id)
-                .distinct()
-            )
-            purchased_channel_ids = [row[0] for row in membership_result.all()]
-            
-            channel_result = await session.execute(
-                select(Channel)
-                .where(
-                    Channel.is_active == True,
-                    (Channel.is_public == True) | (Channel.id.in_(purchased_channel_ids))
-                )
-                .order_by(Channel.id)
-            )
-            channels = channel_result.scalars().all()
-            
-            if not channels:
-                try:
-                    await callback.message.edit_text(
-                        "❌ No channels available at the moment.\n"
-                        "Please check back later!"
-                    )
-                    await callback.answer()
-                except TelegramBadRequest:
-                    await callback.answer()
-                return
-            
-            keyboard = []
-            for idx, channel in enumerate(channels, 1):
-                ch_emoji = CHANNEL_EMOJIS.get(channel.id, "📺")
-                keyboard.append([
-                    InlineKeyboardButton(
-                        text=f"{idx}. {ch_emoji} {channel.name}",
-                        callback_data=f"userch_{channel.id}"
-                    )
-                ])
-            
-            keyboard.append([
-                InlineKeyboardButton(text="📋 My Plans", callback_data="my_plans")
-            ])
-            
-            try:
-                await callback.message.edit_text(
-                    "📺 <b>Available Channels</b>\n\n"
-                    "👇 Select a channel to view plans:",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-                    parse_mode="HTML"
-                )
-                await callback.answer()
-            except TelegramBadRequest:
-                await callback.answer()
-    
-    except Exception as e:
-        await callback.answer(f"Error: {str(e)}", show_alert=True)
+        await callback.answer()
+    except Exception:
+        pass
+    await send_channel_list(callback.message, callback.from_user.id, edit=True)
 
 
 # =====================================================
