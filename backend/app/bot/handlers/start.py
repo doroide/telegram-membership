@@ -1,6 +1,6 @@
 import os
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -20,25 +20,16 @@ ADMIN_USERNAME = "Doroide47"
 
 @router.message(Command("start"))
 async def start_command(message: Message):
-    """
-    Show available channels to user
-    
-    Display logic:
-    - Always show 4 public channels
-    - Show purchased private channels (for renewal)
-    - Hide unpurchased private channels
-    """
     telegram_id = message.from_user.id
-    
+
     async with async_session() as session:
         # Get or create user
         result = await session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
-        
+
         if not user:
-            # Create new user with Tier 3 default
             user = User(
                 telegram_id=telegram_id,
                 username=message.from_user.username,
@@ -48,7 +39,7 @@ async def start_command(message: Message):
             session.add(user)
             await session.commit()
             await session.refresh(user)
-        
+
         # Get user's purchased channels
         membership_result = await session.execute(
             select(Membership.channel_id)
@@ -56,26 +47,6 @@ async def start_command(message: Message):
             .distinct()
         )
         purchased_channel_ids = [row[0] for row in membership_result.all()]
-        
-        # Get channels to display
-        # 1. All public channels (channels 1-4)
-        # 2. Private channels user has purchased
-        channel_result = await session.execute(
-            select(Channel)
-            .where(
-                Channel.is_active == True,
-                (Channel.is_public == True) | (Channel.id.in_(purchased_channel_ids))
-            )
-            .order_by(Channel.id)
-        )
-        channels = channel_result.scalars().all()
-        
-        if not channels:
-            await message.answer(
-                "❌ No channels available at the moment.\n"
-                "Please check back later!"
-            )
-            return
 
         # Check if user has any active memberships
         active_check = await session.execute(
@@ -99,64 +70,81 @@ async def start_command(message: Message):
             except Exception as e:
                 print(f"[START] Could not send activation message: {e}")
             return
-        
-        # Build channel selection keyboard
-       # Fixed channel emojis by channel ID
-        channel_emojis = {
-            12: "📺", 13: "🔥", 14: "🎬", 15: "📚",
-            16: "🔞", 17: "💫", 18: "💎", 19: "🎭",
-            20: "📸", 21: "🌶️"
-        }
 
-        # Build channel selection keyboard
-        keyboard = []
-        for idx, channel in enumerate(channels, 1):
-            # Check if user has active membership
-            has_active = False
-            if channel.id in purchased_channel_ids:
-                membership_check = await session.execute(
-                    select(Membership)
-                    .where(
-                        Membership.user_id == user.id,
-                        Membership.channel_id == channel.id,
-                        Membership.is_active == True
-                    ).limit(1)
-                )
-                has_active = membership_check.scalar_one_or_none() is not None
+    # Build main menu keyboard
+    keyboard = [
+        [InlineKeyboardButton(text="🚀 Membership", callback_data="menu_membership")],
+        [InlineKeyboardButton(text="📋 My Plans", callback_data="my_plans")],
+        [InlineKeyboardButton(text="🎁 Offers for You", callback_data="view_all_upsells")],
+        [InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")],
+    ]
 
-            ch_emoji = channel_emojis.get(channel.id, "📺")
+    welcome_message = (
+        f"👋 <b>Welcome, {message.from_user.first_name}!</b>\n\n"
+        f"Get instant access to our <b>premium membership</b>.\n\n"
+        f"<b>Steps to get membership:</b>\n"
+        f"1️⃣ Tap <b>Membership</b>\n"
+        f"2️⃣ Select a Channel\n"
+        f"3️⃣ Choose a Plan\n"
+        f"4️⃣ Complete Payment\n\n"
+        f"✅ Access is granted automatically after payment."
+    )
 
-            keyboard.append([
-                InlineKeyboardButton(
-                   text=f"{idx}. {ch_emoji} {channel.name}",
-                    callback_data=f"userch_{channel.id}"
-                )
-            ])
-        
-        # Add My Plans and Contact Admin buttons
-        keyboard.append([
-            InlineKeyboardButton(text="📋 My Plans", callback_data="my_plans")
-        ])
+    await message.answer(
+        welcome_message,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="HTML"
+    )
 
-        keyboard.append([
-            InlineKeyboardButton(text="🎁 Offers for You", callback_data="view_all_upsells")
-        ])
-        keyboard.append([
-            InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")
-        ])
-        
-        welcome_message = (
-            f"👋 <b>Welcome, {message.from_user.first_name}!</b>\n\n"
-            f"🎬 <b>Premium Content Collections</b>\n"
-            f"Choose a channel below to view plans and get instant access.\n\n"
-            f"⚡ Direct Videos\n"
-            f"⚡ HD Quality\n"
-            f"⚡ Daily Updates\n\n"
-            f"👇 Select a channel to get started:"
+
+# =====================================================
+# MEMBERSHIP BUTTON → SHOW CHANNEL LIST
+# =====================================================
+
+@router.callback_query(F.data == "menu_membership")
+async def on_menu_membership(callback: CallbackQuery):
+    from backend.app.bot.handlers.channel_plans import send_channel_list
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+    await send_channel_list(callback.message, callback.from_user.id, edit=True)
+
+
+# =====================================================
+# BACK TO HOME
+# =====================================================
+
+@router.callback_query(F.data == "menu_back_home")
+async def on_back_home(callback: CallbackQuery):
+    first_name = callback.from_user.first_name or "there"
+    keyboard = [
+        [InlineKeyboardButton(text="🚀 Membership", callback_data="menu_membership")],
+        [InlineKeyboardButton(text="📋 My Plans", callback_data="my_plans")],
+        [InlineKeyboardButton(text="🎁 Offers for You", callback_data="view_all_upsells")],
+        [InlineKeyboardButton(text="📞 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")],
+    ]
+    text = (
+        f"👋 <b>Welcome, {first_name}!</b>\n\n"
+        f"Get instant access to our <b>premium membership</b>.\n\n"
+        f"<b>Steps to get membership:</b>\n"
+        f"1️⃣ Tap <b>Membership</b>\n"
+        f"2️⃣ Select a Channel\n"
+        f"3️⃣ Choose a Plan\n"
+        f"4️⃣ Complete Payment\n\n"
+        f"✅ Access is granted automatically after payment."
+    )
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+    try:
+        await callback.message.edit_text(
+            text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
-        
-        await message.answer(
-            welcome_message,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-            parse_mode="HTML"
+    except Exception:
+        await callback.message.answer(
+            text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
         )
