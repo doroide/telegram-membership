@@ -94,6 +94,11 @@ async def on_startup():
     await bot.set_webhook(webhook_url)
     print("✅ Webhook installed:", webhook_url)
     
+    # ✅ SET BOT MENU COMMANDS
+    from backend.app.bot.handlers.start import set_bot_commands
+    await set_bot_commands(bot)
+    print("✅ Bot menu commands set")
+    
     # ✅ START BACKGROUND WORKERS
     from backend.app.tasks.scheduler import start_scheduler
     start_scheduler()

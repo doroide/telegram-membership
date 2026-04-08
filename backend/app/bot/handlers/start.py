@@ -1,6 +1,6 @@
 import os
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from aiogram.filters import Command
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,20 @@ router = Router()
 
 # Admin contact username
 ADMIN_USERNAME = "Doroide47"
+
+
+# =====================================================
+# REGISTER BOT MENU COMMANDS
+# =====================================================
+
+async def set_bot_commands(bot):
+    await bot.set_my_commands([
+        BotCommand(command="start",      description="🏠 Main Menu"),
+        BotCommand(command="membership", description="🚀 Browse Channels & Plans"),
+        BotCommand(command="myplans",    description="📋 My Subscriptions"),
+        BotCommand(command="offers",     description="🎁 Special Offers"),
+        BotCommand(command="help",       description="💬 Support & Contact"),
+    ])
 
 
 # =====================================================
@@ -94,6 +108,120 @@ async def start_command(message: Message):
         welcome_message,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
         parse_mode="HTML"
+    )
+
+
+# =====================================================
+# /MEMBERSHIP COMMAND
+# =====================================================
+
+@router.message(Command("membership"))
+async def membership_command(message: Message):
+    from backend.app.bot.handlers.channel_plans import send_channel_list
+    await send_channel_list(message, message.from_user.id, edit=False)
+
+
+# =====================================================
+# /OFFERS COMMAND
+# =====================================================
+
+@router.message(Command("offers"))
+async def offers_command(message: Message):
+    from backend.app.db.models import UpsellAttempt
+    from sqlalchemy import and_
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == message.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            await message.answer("❌ User not found. Please send /start first.")
+            return
+
+        result = await session.execute(
+            select(UpsellAttempt).where(
+                and_(
+                    UpsellAttempt.user_id == user.id,
+                    UpsellAttempt.accepted == False
+                )
+            )
+        )
+        upsells = result.scalars().all()
+
+        if not upsells:
+            await message.answer(
+                "😊 No special offers available right now.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")]
+                ])
+            )
+            return
+
+        msg = "⏳ *Launch Offer — Limited Time*\n\n"
+        keyboard_buttons = []
+
+        for upsell in upsells:
+            channel = await session.get(Channel, upsell.channel_id)
+            if not channel:
+                continue
+
+            duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
+            from_duration = duration_map.get(upsell.from_validity_days, f"{upsell.from_validity_days} days")
+            to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
+
+            original_price = float(upsell.to_amount) / 0.8
+            discount_pct = (float(upsell.discount_amount) / original_price) * 100
+
+            if upsell.is_manual and upsell.custom_message:
+                msg += f"✨ *{upsell.custom_message}*\n\n"
+
+            msg += f"📺 *{channel.name}*\n"
+            msg += f"📈 Upgrade Plan\n"
+            msg += f"{from_duration} → {to_duration}\n"
+            msg += f"💰 ₹{original_price:.0f} → ₹{float(upsell.to_amount):.0f}\n"
+            msg += f"🎉 Save ₹{float(upsell.discount_amount):.0f} • {discount_pct:.0f}% OFF\n"
+
+            if upsell.is_manual:
+                msg += f"🎁 *Special admin offer!*\n"
+
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=f"✅ Accept - {channel.name}",
+                    callback_data=f"upsell_accept_{upsell.id}"
+                )
+            ])
+
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")
+        ])
+
+        await message.answer(
+            msg,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        )
+
+
+# =====================================================
+# /HELP COMMAND
+# =====================================================
+
+@router.message(Command("help"))
+async def help_command(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Contact Admin", url=f"https://t.me/{ADMIN_USERNAME}")],
+        [InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")],
+    ])
+    await message.answer(
+        "💬 <b>Support & Contact</b>\n\n"
+        "Having trouble? We're here to help!\n\n"
+        "📩 Reach out to our admin directly:\n"
+        f"👤 @{ADMIN_USERNAME}\n\n"
+        "⚡ We typically respond within a few minutes.",
+        parse_mode="HTML",
+        reply_markup=keyboard
     )
 
 
