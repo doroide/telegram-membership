@@ -126,7 +126,6 @@ async def my_plans(message: Message):
             
             text += "━━━━━━━━━━━━━━━━━━━━"
         
-        # Add Back to Home button
         renew_buttons.append([
             InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")
         ])
@@ -245,7 +244,6 @@ async def my_plans_button(callback: CallbackQuery):
                     )
                 ])
 
-        # Add Back to Home button
         renew_buttons.append([
             InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")
         ])
@@ -321,7 +319,12 @@ async def view_all_upsells(callback: CallbackQuery):
         upsells = result.scalars().all()
         
         if not upsells:
-            await callback.message.answer("😊 No special offers available right now.")
+            await callback.message.answer(
+                "😊 No special offers available right now.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")]
+                ])
+            )
             return
         
         msg = "⏳ *Launch Offer — Limited Time*\n\n"
@@ -358,6 +361,11 @@ async def view_all_upsells(callback: CallbackQuery):
                     callback_data=f"upsell_accept_{upsell.id}"
                 )
             ])
+
+        # Add Back to Home button
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")
+        ])
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         await callback.message.answer(msg, parse_mode="Markdown", reply_markup=keyboard)

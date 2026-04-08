@@ -71,7 +71,8 @@ async def show_upi_payment(
         [InlineKeyboardButton(
             text="✅ I Have Paid",
             callback_data=f"upi_paid:{channel_id}:{days}:{price}"
-        )]
+        )],
+        [InlineKeyboardButton(text="🏠 Back to Home", callback_data="cancel_to_home")]
     ])
 
     try:
@@ -117,11 +118,16 @@ async def upi_paid_clicked(callback: CallbackQuery, state: FSMContext):
     await state.update_data(upi_channel_id=channel_id, upi_days=days, upi_price=price)
     await state.set_state(UpiStates.waiting_for_proof)
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏠 Back to Home", callback_data="cancel_to_home")]
+    ])
+
     await callback.message.answer(
         "📩 *Send Payment Proof*\n\n"
         "Please send your *payment screenshot* 📸\n\n"
         "🔥 For any issue, contact admin: @doroide47",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=keyboard
     )
     try:
         await callback.answer()
@@ -190,6 +196,10 @@ async def receive_proof(message: Message, state: FSMContext):
         await session.commit()
         await session.refresh(upi_payment)
 
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Back to Home", callback_data="cancel_to_home")]
+        ])
+
         await message.answer(
             "\u23f3 *Payment Under Review*\n\n"
             "Thanks\\! Your payment proof has been received \u2705\n\n"
@@ -198,11 +208,26 @@ async def receive_proof(message: Message, state: FSMContext):
             "\U0001f4de Need help? Contact admin: @doroide47\n\n"
             "\U0001f3af You will get access immediately after approval\\.\n"
             "\U0001f64f Please wait\\.\\.\\.",
-            parse_mode="MarkdownV2"
+            parse_mode="MarkdownV2",
+            reply_markup=keyboard
         )
         await state.clear()
 
         await _notify_admin(upi_payment, user, channel, message.from_user)
+
+
+# ── User: cancel and go back home ────────────────────────────────────
+
+@router.callback_query(F.data == "cancel_to_home")
+async def cancel_to_home(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
+    from backend.app.bot.handlers.start import on_back_home
+    await on_back_home(callback)
 
 
 # ── Admin: notify ─────────────────────────────────────────────────────
