@@ -1,5 +1,6 @@
 from decimal import Decimal
 from aiogram import Router, F
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select, and_
 from datetime import datetime, timezone, timedelta
@@ -15,7 +16,6 @@ async def my_plans(message: Message):
     telegram_id = message.from_user.id
     
     async with async_session() as session:
-        # Get user
         result = await session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -25,7 +25,6 @@ async def my_plans(message: Message):
             await message.answer(f"❌ User not found (telegram_id: {telegram_id})")
             return
         
-        # Get ALL memberships for categorization
         result = await session.execute(
             select(Membership)
             .where(Membership.user_id == user.id)
@@ -39,7 +38,6 @@ async def my_plans(message: Message):
         
         now = datetime.now(timezone.utc)
         
-        # Categorize memberships into three states
         active_plans = []
         expiring_soon = []
         expired_plans = []
@@ -54,11 +52,9 @@ async def my_plans(message: Message):
                 else:
                     expiring_soon.append(m)
         
-        # Build message
         text = "📋 *Your Subscriptions*\n\n"
         renew_buttons = []
         
-        # ACTIVE SECTION (>15 days) - NO RENEW BUTTON
         if active_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "✅ *ACTIVE*\n\n"
@@ -70,7 +66,6 @@ async def my_plans(message: Message):
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
                 
                 text += f"📺 *{idx}. {channel.name}*\n"
-                
                 text += f"📺 *{channel.name}*\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
                 text += f"   ├ ⏳ {days_left} days remaining\n"
@@ -78,7 +73,6 @@ async def my_plans(message: Message):
             
             text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        # EXPIRING SOON SECTION (1-15 days) - WITH RENEW BUTTON
         if expiring_soon:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "⏰ *EXPIRING SOON*\n\n"
@@ -90,16 +84,12 @@ async def my_plans(message: Message):
                 auto_renew = "✅ Yes" if m.auto_renew_enabled else "❌ No"
                 
                 text += f"📺 *{idx}. {channel.name}*\n"
-
-                
                 text += f"📺 *{channel.name}*\n"
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
                 text += f"   ├ ⏳ {days_left} days remaining\n"
                 text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
                 
-                # Add urgency-based button
                 if days_left <= 7:
-                    # 1-7 days: URGENT
                     renew_buttons.append([
                         InlineKeyboardButton(
                             text=f"🔴 Renew Now - {channel.name}",
@@ -107,7 +97,6 @@ async def my_plans(message: Message):
                         )
                     ])
                 else:
-                    # 8-15 days: NORMAL
                     renew_buttons.append([
                         InlineKeyboardButton(
                             text=f"⚡ Renew Available - {channel.name}",
@@ -117,12 +106,11 @@ async def my_plans(message: Message):
             
             text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        # EXPIRED SECTION - WITH RENEW BUTTON
         if expired_plans:
             text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "❌ *EXPIRED*\n\n"
 
-            for idx, m in enumerate(expired_plans[:5], 1):  # Show max 5
+            for idx, m in enumerate(expired_plans[:5], 1):
                 channel = await session.get(Channel, m.channel_id)
                 expired_date = m.expiry_date.strftime("%d %b %Y")
                 
@@ -138,12 +126,13 @@ async def my_plans(message: Message):
             
             text += "━━━━━━━━━━━━━━━━━━━━"
         
-        # Send with renew buttons if any
-        if renew_buttons:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=renew_buttons)
-            await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
-        else:
-            await message.answer(text, parse_mode="Markdown")
+        # Add Back to Home button
+        renew_buttons.append([
+            InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=renew_buttons)
+        await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 @router.callback_query(F.data == "my_plans")
@@ -157,7 +146,6 @@ async def my_plans_button(callback: CallbackQuery):
     telegram_id = callback.from_user.id
     
     async with async_session() as session:
-        # Get user
         result = await session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -167,7 +155,6 @@ async def my_plans_button(callback: CallbackQuery):
             await callback.message.answer(f"❌ User not found (telegram_id: {telegram_id})")
             return
         
-        # Get ALL memberships
         result = await session.execute(
             select(Membership)
             .where(Membership.user_id == user.id)
@@ -181,7 +168,6 @@ async def my_plans_button(callback: CallbackQuery):
         
         now = datetime.now(timezone.utc)
         
-        # Categorize memberships
         active_plans = []
         expiring_soon = []
         expired_plans = []
@@ -196,13 +182,10 @@ async def my_plans_button(callback: CallbackQuery):
                 else:
                     expiring_soon.append(m)
         
-        # Build message
         text = "📋 *Your Subscriptions*\n\n"
         renew_buttons = []
         
-        # ACTIVE SECTION
         if active_plans:
-           # text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "✅ *ACTIVE*\n\n"
             
             for m in active_plans:
@@ -215,12 +198,8 @@ async def my_plans_button(callback: CallbackQuery):
                 text += f"   ├ 📅 Expires: {expiry_date}\n"
                 text += f"   ├ ⏳ {days_left} days remaining\n"
                 text += f"   └ 🔄 Auto-Renew: {auto_renew}\n\n"
-            
-           # text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        # EXPIRING SOON SECTION
         if expiring_soon:
-           # text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "⏰ *EXPIRING SOON*\n\n"
             
             for m in expiring_soon:
@@ -248,12 +227,8 @@ async def my_plans_button(callback: CallbackQuery):
                             callback_data=f"quick_renew_{m.id}"
                         )
                     ])
-            
-         #   text += "━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        # EXPIRED SECTION
         if expired_plans:
-         #   text += "━━━━━━━━━━━━━━━━━━━━\n"
             text += "⌛ *EXPIRED*\n\n"
             
             for m in expired_plans[:5]:
@@ -269,20 +244,19 @@ async def my_plans_button(callback: CallbackQuery):
                         callback_data=f"quick_renew_{m.id}"
                     )
                 ])
-            
-           # text += "━━━━━━━━━━━━━━━━━━━━"
-        
-        if renew_buttons:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=renew_buttons)
-            await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
-        else:
-            await callback.message.answer(text, parse_mode="Markdown")
+
+        # Add Back to Home button
+        renew_buttons.append([
+            InlineKeyboardButton(text="🏠 Back to Home", callback_data="menu_back_home")
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=renew_buttons)
+        await callback.message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("quick_renew_"))
-async def quick_renew(callback: CallbackQuery):
-    """Handle Quick Renew with grace period logic"""
-    
+async def quick_renew(callback: CallbackQuery, state: FSMContext):
+    """Handle Quick Renew — routes to UPI payment flow"""
     try:
         await callback.answer()
     except:
@@ -292,84 +266,25 @@ async def quick_renew(callback: CallbackQuery):
         membership_id = int(callback.data.split("_")[2])
         
         async with async_session() as db:
-            # Get membership
             membership = await db.get(Membership, membership_id)
             if not membership:
                 await callback.message.answer("❌ Membership not found.")
                 return
             
-            # Get user and channel
             user = await db.get(User, membership.user_id)
             channel = await db.get(Channel, membership.channel_id)
-            
-            # Calculate price
-            base_prices = {
-                1: {30: 49, 90: 149, 180: 299, 365: 599},
-                2: {30: 99, 90: 299, 180: 599, 365: 1199},
-                3: {30: 199, 90: 599, 180: 1199, 365: 2399},
-                4: {30: 299, 90: 899, 180: 1799, 365: 3599},
-            }
-            
-            tier = membership.tier or user.current_tier
-            price = base_prices.get(tier, base_prices[3])[membership.validity_days]
-            
-            duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
-            duration = duration_map.get(membership.validity_days, f"{membership.validity_days} days")
-            
-            # Create payment link
-            import razorpay
-            import os
-            
-            razorpay_client = razorpay.Client(
-                auth=(os.getenv("RAZORPAY_KEY"), os.getenv("RAZORPAY_SECRET"))
+
+            from backend.app.bot.handlers.upi_payment import show_upi_payment
+            await show_upi_payment(
+                callback=callback,
+                channel_id=channel.id,
+                days=membership.validity_days,
+                price=membership.amount_paid,
+                channel_name=channel.name,
+                state=state
             )
-            
-            payment_data = {
-                "amount": int(price * 100),
-                "currency": "INR",
-                "description": f"Renew: {channel.name} - {duration}",
-                "customer": {
-                    "name": user.full_name or "User",
-                    "contact": str(user.telegram_id)
-                },
-                "notify": {"sms": False, "email": False},
-                "reminder_enable": False,
-                "notes": {
-                    "telegram_id": str(user.telegram_id),
-                    "channel_id": str(channel.id),
-                    "validity_days": str(membership.validity_days),
-                    "tier": str(tier),
-                    "is_renewal": "true",  # Flag for webhook
-                    "old_membership_id": str(membership.id)  # Reference to old membership
-                }
-            }
-            
-            response = razorpay_client.payment_link.create(payment_data)
-            payment_link = response["short_url"]
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Pay Now", url=payment_link)],
-                [InlineKeyboardButton(text="📞 Contact Admin", url="https://t.me/Doroide47")]
-            ])
-            
-            # Check if within grace period
-            now = datetime.now(timezone.utc)
-            grace_period_end = membership.expiry_date + timedelta(hours=48)
-            within_grace = membership.expiry_date < now <= grace_period_end
-            
-            grace_msg = "\n\n⏰ *Grace Period Active!*\nRenewal will extend from your old expiry date." if within_grace else ""
-            
-            await callback.message.edit_text(
-                f"⚡ *Quick Renew*\n\n"
-                f"📺 Channel: {channel.name}\n"
-                f"📅 Duration: {duration}\n"
-                f"💰 Price: ₹{price}\n\n"
-                f"Click 'Pay Now' to renew!{grace_msg}",
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
-            
-            logger.info(f"Quick renew: user {user.telegram_id}, membership {membership_id}, grace={within_grace}")
+
+            logger.info(f"Quick renew (UPI): user {user.telegram_id}, membership {membership_id}")
     
     except Exception as e:
         logger.error(f"Error in quick_renew: {e}")
@@ -381,7 +296,6 @@ async def view_all_upsells(callback: CallbackQuery):
     """Show all available upsell offers (auto + manual)"""
     
     async with async_session() as session:
-        # Get user
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -396,7 +310,6 @@ async def view_all_upsells(callback: CallbackQuery):
             await callback.message.answer("User not found.")
             return
         
-        # Get all upsells (both manual and automatic)
         result = await session.execute(
             select(UpsellAttempt).where(
                 and_(
@@ -411,29 +324,22 @@ async def view_all_upsells(callback: CallbackQuery):
             await callback.message.answer("😊 No special offers available right now.")
             return
         
-        # Build offers message
-        msg = "🎁 *Your Exclusive Offers*\n\n"
-        msg = "⏳ *Launch Offer — Limited Time*\n\n"  
-      #  msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
+        msg = "⏳ *Launch Offer — Limited Time*\n\n"
         
         keyboard_buttons = []
         
         for upsell in upsells:
-            # Get channel
             channel = await session.get(Channel, upsell.channel_id)
             if not channel:
-                continue  # Skip upsells for deleted/missing channels
+                continue
 
-            
-            # Format durations
             duration_map = {30: "1 Month", 90: "3 Months", 120: "4 Months", 180: "6 Months", 365: "1 Year"}
             from_duration = duration_map.get(upsell.from_validity_days, f"{upsell.from_validity_days} days")
             to_duration = duration_map.get(upsell.to_validity_days, f"{upsell.to_validity_days} days")
             
-            original_price = float(upsell.to_amount) / 0.8  # Calculate from 20% discount
+            original_price = float(upsell.to_amount) / 0.8
             discount_pct = (float(upsell.discount_amount) / original_price) * 100
             
-            # Show custom message if manual offer
             if upsell.is_manual and upsell.custom_message:
                 msg += f"✨ *{upsell.custom_message}*\n\n"
             
@@ -446,9 +352,6 @@ async def view_all_upsells(callback: CallbackQuery):
             if upsell.is_manual:
                 msg += f"🎁 *Special admin offer!*\n"
             
-         #   msg += "\n━━━━━━━━━━━━━━━━━━━━\n\n"
-            
-            # Add button
             keyboard_buttons.append([
                 InlineKeyboardButton(
                     text=f"✅ Accept - {channel.name}",
@@ -457,47 +360,4 @@ async def view_all_upsells(callback: CallbackQuery):
             ])
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-        
         await callback.message.answer(msg, parse_mode="Markdown", reply_markup=keyboard)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
