@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
 
 from backend.app.db.session import async_session
-from backend.app.db.models import User, Channel, Membership
+from backend.app.db.models import User, Channel, Membership, Payment
 from backend.app.services.tier_engine import (
     TIER_PLANS,
     calculate_tier_from_amount,
@@ -67,7 +67,6 @@ async def receive_user_id(message: Message, state: FSMContext):
         await message.answer("❌ Invalid ID. Please enter a valid Telegram user ID (numbers only).")
         return
     
-    # Check if user exists, if not create
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == user_telegram_id)
@@ -75,7 +74,6 @@ async def receive_user_id(message: Message, state: FSMContext):
         user = result.scalar_one_or_none()
         
         if not user:
-            # Create new user with default Tier 3
             user = User(
                 telegram_id=user_telegram_id,
                 current_tier=3,
@@ -88,14 +86,12 @@ async def receive_user_id(message: Message, state: FSMContext):
         else:
             user_status = f"✅ Existing user found (Current Tier: {user.current_tier})"
         
-        # Store user info
         await state.update_data(
             user_id=user.id,
             user_telegram_id=user_telegram_id,
             existing_user=user is not None
         )
     
-    # Show all 10 channels
     async with async_session() as session:
         result = await session.execute(
             select(Channel).where(Channel.is_active == True).order_by(Channel.id)
@@ -107,7 +103,6 @@ async def receive_user_id(message: Message, state: FSMContext):
             await state.clear()
             return
         
-        # Create channel selection keyboard
         keyboard = []
         for channel in channels:
             visibility = "🔓 Public" if channel.is_public else "🔒 Private"
@@ -153,10 +148,8 @@ async def channel_selected(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Channel not found", show_alert=True)
             return
         
-        # Store channel info
         await state.update_data(channel_id=channel_id, channel_name=channel.name)
         
-        # Show validity options
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="1 Month", callback_data="adminadd_val_30")],
             [InlineKeyboardButton(text="3 Months", callback_data="adminadd_val_90")],
@@ -188,7 +181,6 @@ async def validity_selected(callback: CallbackQuery, state: FSMContext):
     """Handle validity selection and show tier options"""
     validity_days = int(callback.data.split("_")[2])
     
-    # Map days to display names
     validity_display = {
         30: "1 Month",
         90: "3 Months",
@@ -210,11 +202,8 @@ async def validity_selected(callback: CallbackQuery, state: FSMContext):
     channel_id = data["channel_id"]
     channel_name = data["channel_name"]
     
-    # Show tier pricing options
     tier_options = []
     
-    # For Channel 1, show all 4 tiers
-    # For others, show Tier 3 and 4 only
     if channel_id == 1:
         tiers_to_show = [1, 2, 3, 4]
     else:
@@ -231,7 +220,6 @@ async def validity_selected(callback: CallbackQuery, state: FSMContext):
                 )
             ])
     
-    # Add custom amount option
     tier_options.append([
         InlineKeyboardButton(
             text="💰 Custom Amount",
@@ -268,7 +256,6 @@ async def tier_selected(callback: CallbackQuery, state: FSMContext):
     
     await state.update_data(tier=tier, amount=amount)
     
-    # Show confirmation
     data = await state.get_data()
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -322,7 +309,6 @@ async def receive_custom_amount(message: Message, state: FSMContext):
         
         await state.update_data(amount=amount)
         
-        # Show tier selection for custom amount
         data = await state.get_data()
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -347,12 +333,10 @@ async def receive_custom_amount(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("adminadd_customtier_"), AdminAddUserStates.enter_custom_amount)
 async def custom_tier_selected(callback: CallbackQuery, state: FSMContext):
     """Handle tier selection for custom amount"""
-    # FIX: Changed from [1] to [2] because callback format is "adminadd_customtier_1"
     tier = int(callback.data.split("_")[2])
     
     await state.update_data(tier=tier)
     
-    # Show confirmation
     data = await state.get_data()
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -387,7 +371,6 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
     
     try:
         async with async_session() as session:
-            # Get user
             user_result = await session.execute(
                 select(User).where(User.id == data["user_id"])
             )
@@ -398,7 +381,6 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 await state.clear()
                 return
             
-            # Get channel
             channel_result = await session.execute(
                 select(Channel).where(Channel.id == data["channel_id"])
             )
@@ -416,8 +398,11 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 data["channel_id"],
                 data["is_lifetime"]
             )
-            
-            # Create membership
+
+            # ── Update highest_amount_paid if new amount is higher ──
+            if data["amount"] > float(user.highest_amount_paid or 0):
+                user.highest_amount_paid = data["amount"]
+
             from datetime import datetime, timezone, timedelta
             now = datetime.now(timezone.utc)
             start_date = now
@@ -433,11 +418,19 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 expiry_date=expiry_date,
                 is_active=True
             )
-            
             session.add(membership)
+
+            # ── Add Payment record for revenue tracking ─────────────
+            session.add(Payment(
+                user_id=user.id,
+                channel_id=data["channel_id"],
+                amount=data["amount"],
+                payment_id=f"MANUAL_{user.id}_{data['channel_id']}_{int(now.timestamp())}",
+                status="captured"
+            ))
+
             await session.commit()
             
-            # Success message to admin
             await callback.message.edit_text(
                 f"✅ <b>User Added Successfully</b>\n\n"
                 f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
@@ -454,10 +447,8 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
         # SEND INVITE LINK TO USER AUTOMATICALLY
         # =========================================
         try:
-            # Import bot
             from backend.bot.bot import bot
             
-            # Create invite link
             invite_expiry = int((now + timedelta(hours=24)).timestamp())
             
             invite = await bot.create_chat_invite_link(
@@ -466,14 +457,12 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 expire_date=invite_expiry
             )
             
-            # Prepare tier message
             tier_message = ""
             if user.is_lifetime_member:
                 tier_message = "\n💎 You are now a <b>Lifetime Member</b>!"
             elif user.current_tier == 4:
                 tier_message = "\n💎 You've unlocked <b>Tier 4 (Elite)</b> pricing!"
             
-            # Send message to user
             await bot.send_message(
                 chat_id=data['user_telegram_id'],
                 text=(
@@ -488,7 +477,6 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 parse_mode="HTML"
             )
             
-            # Update admin with success
             await callback.message.edit_text(
                 f"✅ <b>User Added Successfully</b>\n\n"
                 f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
@@ -505,7 +493,6 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             
         except Exception as e:
             print(f"❌ Error sending invite to user: {e}")
-            # Update admin that membership created but invite failed
             await callback.message.edit_text(
                 f"✅ <b>User Added Successfully</b>\n\n"
                 f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
