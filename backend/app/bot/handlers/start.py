@@ -1,6 +1,6 @@
 import os
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, BotCommandScopeChat
 from aiogram.filters import Command
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -13,19 +13,47 @@ router = Router()
 # Admin contact username
 ADMIN_USERNAME = "Doroide47"
 
+# Admin IDs — env var + hardcoded
+ADMIN_IDS = [5793624035, 952763698] + [
+    int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()
+]
+
 
 # =====================================================
 # REGISTER BOT MENU COMMANDS
 # =====================================================
 
+USER_COMMANDS = [
+    BotCommand(command="start",      description="🏠 Main Menu"),
+    BotCommand(command="membership", description="🚀 Browse Channels & Plans"),
+    BotCommand(command="myplans",    description="📋 My Subscriptions"),
+    BotCommand(command="offers",     description="🎁 Special Offers"),
+    BotCommand(command="help",       description="💬 Support & Contact"),
+]
+
+ADMIN_COMMANDS = [
+    BotCommand(command="admin",      description="🛠 Admin Panel"),
+    BotCommand(command="adduser",    description="➕ Add User Manually"),
+    BotCommand(command="addchannel", description="📺 Add New Channel"),
+    BotCommand(command="sendlinks",  description="🔗 Send Access Links"),
+    BotCommand(command="userinfo",   description="👤 User Info"),
+    BotCommand(command="broadcast",  description="📢 Broadcast Message"),
+    BotCommand(command="kick",       description="🦵 Kick User"),
+]
+
+
 async def set_bot_commands(bot):
-    await bot.set_my_commands([
-        BotCommand(command="start",      description="🏠 Main Menu"),
-        BotCommand(command="membership", description="🚀 Browse Channels & Plans"),
-        BotCommand(command="myplans",    description="📋 My Subscriptions"),
-        BotCommand(command="offers",     description="🎁 Special Offers"),
-        BotCommand(command="help",       description="💬 Support & Contact"),
-    ])
+    """Called on startup — sets default user commands globally."""
+    await bot.set_my_commands(USER_COMMANDS)
+
+
+async def set_commands_for_user(bot, telegram_id: int):
+    """Called on /start — sets scoped commands based on admin or user."""
+    scope = BotCommandScopeChat(chat_id=telegram_id)
+    if telegram_id in ADMIN_IDS:
+        await bot.set_my_commands(ADMIN_COMMANDS, scope=scope)
+    else:
+        await bot.set_my_commands(USER_COMMANDS, scope=scope)
 
 
 # =====================================================
@@ -71,7 +99,14 @@ async def start_command(message: Message):
         )
         has_active = active_check.scalars().first()
 
-        if not has_active:
+        # ── Set scoped menu commands for this user ──────────────
+        try:
+            from backend.bot.bot import bot
+            await set_commands_for_user(bot, telegram_id)
+        except Exception as e:
+            print(f"[START] Could not set commands: {e}")
+
+        if not has_active and telegram_id not in ADMIN_IDS:
             try:
                 await message.answer(
                     "⏳ *Your Access is Being Activated*\n\n"

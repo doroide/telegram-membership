@@ -458,7 +458,7 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             from backend.bot.bot import bot
             
             # Create invite link
-            invite_expiry = int((now + timedelta(minutes=10)).timestamp())
+            invite_expiry = int((now + timedelta(hours=24)).timestamp())
             
             invite = await bot.create_chat_invite_link(
                 chat_id=channel.telegram_chat_id,
@@ -483,7 +483,7 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                     f"⏰ Valid till: <b>{expiry_date.strftime('%d %b %Y')}</b>\n"
                     f"🎯 Tier: {data['tier']}"
                     f"{tier_message}\n\n"
-                    f"👉 Click below to join (link expires in 10 mins):\n{invite.invite_link}"
+                    f"👉 Click below to join (link expires in 24 hrs):\n{invite.invite_link}"
                 ),
                 parse_mode="HTML"
             )
