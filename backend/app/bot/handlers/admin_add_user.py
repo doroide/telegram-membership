@@ -23,6 +23,21 @@ ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x]
 
 
 # =========================================================
+# HELPER — FORMAT USER DISPLAY
+# =========================================================
+
+def format_user(full_name, username, telegram_id):
+    if full_name and username:
+        return f"{full_name} (@{username}) | <code>{telegram_id}</code>"
+    elif full_name:
+        return f"{full_name} | <code>{telegram_id}</code>"
+    elif username:
+        return f"@{username} | <code>{telegram_id}</code>"
+    else:
+        return f"<code>{telegram_id}</code>"
+
+
+# =========================================================
 # FSM STATES
 # =========================================================
 class AdminAddUserStates(StatesGroup):
@@ -85,10 +100,13 @@ async def receive_user_id(message: Message, state: FSMContext):
             user_status = "✅ New user created (Default: Tier 3)"
         else:
             user_status = f"✅ Existing user found (Current Tier: {user.current_tier})"
-        
+
+        # ── Store name + username in FSM state ──
         await state.update_data(
             user_id=user.id,
             user_telegram_id=user_telegram_id,
+            user_full_name=user.full_name or "",
+            user_username=user.username or "",
             existing_user=user is not None
         )
     
@@ -116,10 +134,13 @@ async def receive_user_id(message: Message, state: FSMContext):
         keyboard.append([
             InlineKeyboardButton(text="❌ Cancel", callback_data="adminadd_cancel")
         ])
-        
+
+        data = await state.get_data()
+        user_display = format_user(data["user_full_name"], data["user_username"], user_telegram_id)
+
         await message.answer(
             f"👤 <b>Add User</b>\n\n"
-            f"User ID: <code>{user_telegram_id}</code>\n"
+            f"User: {user_display}\n"
             f"{user_status}\n\n"
             f"Select the channel user has paid for:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
@@ -257,7 +278,8 @@ async def tier_selected(callback: CallbackQuery, state: FSMContext):
     await state.update_data(tier=tier, amount=amount)
     
     data = await state.get_data()
-    
+    user_display = format_user(data["user_full_name"], data["user_username"], data["user_telegram_id"])
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Confirm & Activate", callback_data="adminadd_confirm")],
         [InlineKeyboardButton(text="🔙 Back", callback_data="adminadd_back_tier")]
@@ -265,7 +287,7 @@ async def tier_selected(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         f"📋 <b>Confirmation</b>\n\n"
-        f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
+        f"👤 User: {user_display}\n"
         f"📺 Channel: {data['channel_name']}\n"
         f"⏰ Validity: {data['validity_display']}\n"
         f"🎯 Tier: {tier}\n"
@@ -309,8 +331,6 @@ async def receive_custom_amount(message: Message, state: FSMContext):
         
         await state.update_data(amount=amount)
         
-        data = await state.get_data()
-        
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Tier 1 (Budget)", callback_data="adminadd_customtier_1")],
             [InlineKeyboardButton(text="Tier 2 (Standard)", callback_data="adminadd_customtier_2")],
@@ -338,7 +358,8 @@ async def custom_tier_selected(callback: CallbackQuery, state: FSMContext):
     await state.update_data(tier=tier)
     
     data = await state.get_data()
-    
+    user_display = format_user(data["user_full_name"], data["user_username"], data["user_telegram_id"])
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Confirm & Activate", callback_data="adminadd_confirm")],
         [InlineKeyboardButton(text="🔙 Back", callback_data="adminadd_back_tier")]
@@ -346,7 +367,7 @@ async def custom_tier_selected(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.edit_text(
         f"📋 <b>Confirmation</b>\n\n"
-        f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
+        f"👤 User: {user_display}\n"
         f"📺 Channel: {data['channel_name']}\n"
         f"⏰ Validity: {data['validity_display']}\n"
         f"🎯 Tier: {tier}\n"
@@ -390,7 +411,10 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 await callback.message.edit_text("❌ Channel not found.")
                 await state.clear()
                 return
-            
+
+            # ── Capture tier before update ───────────────────────────
+            tier_before = user.current_tier
+
             # Update user tier
             update_user_tier(
                 user,
@@ -399,7 +423,13 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
                 data["is_lifetime"]
             )
 
-            # ── Update highest_amount_paid if new amount is higher ──
+            tier_after = user.current_tier
+            tier_display = (
+                f"{tier_before} → {tier_after}" if tier_after != tier_before
+                else f"{tier_before}"
+            )
+
+            # ── Update highest_amount_paid if new amount is higher ───
             if data["amount"] > float(user.highest_amount_paid or 0):
                 user.highest_amount_paid = data["amount"]
 
@@ -420,7 +450,7 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             )
             session.add(membership)
 
-            # ── Add Payment record for revenue tracking ─────────────
+            # ── Add Payment record for revenue tracking ──────────────
             session.add(Payment(
                 user_id=user.id,
                 channel_id=data["channel_id"],
@@ -430,13 +460,15 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             ))
 
             await session.commit()
-            
+
+            user_display = format_user(data["user_full_name"], data["user_username"], data["user_telegram_id"])
+
             await callback.message.edit_text(
                 f"✅ <b>User Added Successfully</b>\n\n"
-                f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
+                f"👤 User: {user_display}\n"
                 f"📺 Channel: {data['channel_name']}\n"
                 f"⏰ Validity: {data['validity_display']}\n"
-                f"🎯 Tier: {data['tier']}\n"
+                f"🎯 Tier: {tier_display}\n"
                 f"💰 Amount: ₹{data['amount']}\n"
                 f"📅 Expires: {expiry_date.strftime('%Y-%m-%d')}\n\n"
                 f"📤 Sending invite link to user...",
@@ -479,10 +511,10 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             
             await callback.message.edit_text(
                 f"✅ <b>User Added Successfully</b>\n\n"
-                f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
+                f"👤 User: {user_display}\n"
                 f"📺 Channel: {data['channel_name']}\n"
                 f"⏰ Validity: {data['validity_display']}\n"
-                f"🎯 Tier: {data['tier']}\n"
+                f"🎯 Tier: {tier_display}\n"
                 f"💰 Amount: ₹{data['amount']}\n"
                 f"📅 Expires: {expiry_date.strftime('%Y-%m-%d')}\n\n"
                 f"✅ Invite link sent to user successfully!",
@@ -495,10 +527,10 @@ async def confirm_and_activate(callback: CallbackQuery, state: FSMContext):
             print(f"❌ Error sending invite to user: {e}")
             await callback.message.edit_text(
                 f"✅ <b>User Added Successfully</b>\n\n"
-                f"👤 User ID: <code>{data['user_telegram_id']}</code>\n"
+                f"👤 User: {user_display}\n"
                 f"📺 Channel: {data['channel_name']}\n"
                 f"⏰ Validity: {data['validity_display']}\n"
-                f"🎯 Tier: {data['tier']}\n"
+                f"🎯 Tier: {tier_display}\n"
                 f"💰 Amount: ₹{data['amount']}\n"
                 f"📅 Expires: {expiry_date.strftime('%Y-%m-%d')}\n\n"
                 f"⚠️ Membership created but failed to send invite.\n"
