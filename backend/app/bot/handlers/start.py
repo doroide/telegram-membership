@@ -39,6 +39,7 @@ ADMIN_COMMANDS = [
     BotCommand(command="userinfo",   description="👤 User Info"),
     BotCommand(command="broadcast",  description="📢 Broadcast Message"),
     BotCommand(command="kick",       description="🦵 Kick User"),
+    BotCommand(command="dailyreport", description="👥 Daily Member Report"),
 ]
 
 

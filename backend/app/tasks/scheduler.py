@@ -1,6 +1,5 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-
 from backend.app.tasks.expiry_checker import run_expiry_check
 from backend.app.tasks.reminder_worker import run_reminder_check
 from backend.app.tasks.reports import (
@@ -8,10 +7,10 @@ from backend.app.tasks.reports import (
     send_weekly_report,
     send_monthly_report,
     send_yearly_report,
+    send_member_daily_report,
 )
 
 scheduler = AsyncIOScheduler()
-
 
 def start_scheduler():
     # Expiry check – every hour
@@ -21,7 +20,6 @@ def start_scheduler():
         id="expiry_check",
         replace_existing=True
     )
-
     # Reminder worker – 9 AM & 6 PM UTC
     scheduler.add_job(
         run_reminder_check,
@@ -29,15 +27,20 @@ def start_scheduler():
         id="reminder_check",
         replace_existing=True
     )
-
-    # Daily report – 9 AM IST
+    # Daily revenue report – 9 AM IST (3:30 UTC)
     scheduler.add_job(
         send_daily_report,
         CronTrigger(hour=3, minute=30),
         id="daily_report",
         replace_existing=True
     )
-
+    # Daily member report – 9 AM IST (3:30 UTC)
+    scheduler.add_job(
+        send_member_daily_report,
+        CronTrigger(hour=3, minute=30),
+        id="member_daily_report",
+        replace_existing=True
+    )
     # Weekly report – Monday 9 AM IST
     scheduler.add_job(
         send_weekly_report,
@@ -45,7 +48,6 @@ def start_scheduler():
         id="weekly_report",
         replace_existing=True
     )
-
     # Monthly report – 1st day 9 AM IST
     scheduler.add_job(
         send_monthly_report,
@@ -53,7 +55,6 @@ def start_scheduler():
         id="monthly_report",
         replace_existing=True
     )
-
     # Yearly report – Jan 1st 9 AM IST
     scheduler.add_job(
         send_yearly_report,
@@ -61,10 +62,8 @@ def start_scheduler():
         id="yearly_report",
         replace_existing=True
     )
-
     scheduler.start()
     print("✅ Scheduler started (daily / weekly / monthly / yearly reports enabled)")
-
 
 def stop_scheduler():
     scheduler.shutdown()

@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Payment, Membership, Channel
 from backend.bot.bot import bot
-
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # =========================
 # CONFIG
@@ -361,3 +361,153 @@ async def send_yearly_report():
     )
 
     await _send_to_admins(msg)
+
+
+# =========================
+# MEMBER DAILY REPORT
+# =========================
+
+async def send_member_daily_report(date=None):
+    """
+    Sends member activity report for a given date.
+    If date is None, uses yesterday.
+    Called automatically at 9 AM and also by /dailyreport command.
+    """
+    now = datetime.now(timezone.utc)
+
+    if date is None:
+        report_day = now.date() - timedelta(days=1)
+    else:
+        report_day = date
+
+    start = datetime.combine(report_day, datetime.min.time(), tzinfo=timezone.utc)
+    end = start + timedelta(days=1)
+
+    # Expiring today window
+    today_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+    today_end = today_start + timedelta(days=1)
+
+    async with async_session() as session:
+
+        # ── 1. New members on report_day ─────────────────────────
+        new_result = await session.execute(
+            select(Membership, User, Channel)
+            .join(User, Membership.user_id == User.id)
+            .join(Channel, Membership.channel_id == Channel.id)
+            .where(Membership.created_at.between(start, end))
+            .order_by(Membership.created_at.desc())
+        )
+        new_members = new_result.all()
+
+        # ── 2. Expiring today ────────────────────────────────────
+        expiring_result = await session.execute(
+            select(Membership, User, Channel)
+            .join(User, Membership.user_id == User.id)
+            .join(Channel, Membership.channel_id == Channel.id)
+            .where(
+                Membership.is_active == True,
+                Membership.expiry_date.between(today_start, today_end)
+            )
+            .order_by(Membership.expiry_date.asc())
+        )
+        expiring = expiring_result.all()
+
+        # ── 3. Expired on report_day ─────────────────────────────
+        expired_result = await session.execute(
+            select(Membership, User, Channel)
+            .join(User, Membership.user_id == User.id)
+            .join(Channel, Membership.channel_id == Channel.id)
+            .where(Membership.expiry_date.between(start, end))
+            .order_by(Membership.expiry_date.desc())
+        )
+        expired = expired_result.all()
+
+    date_label = start.astimezone(IST).strftime("%d %b %Y")
+
+    # ── Summary line ─────────────────────────────────────────────
+    msg = (
+        f"👥 <b>Member Report — {date_label}</b>\n"
+        f"📊 {len(new_members)} new | {len(expiring)} expiring today | {len(expired)} expired\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    keyboards = []
+
+    # ── New Members ──────────────────────────────────────────────
+    if new_members:
+        msg += "🆕 <b>NEW MEMBERS</b>\n\n"
+        for idx, (m, u, ch) in enumerate(new_members, 1):
+            name = u.full_name or "No Name"
+            username = f"@{u.username}" if u.username else "No username"
+            msg += (
+                f"{idx}. <b>{name}</b> ({username})\n"
+                f"   📺 {ch.name} | ₹{int(m.amount_paid)} | {m.validity_days}d\n\n"
+            )
+            keyboards.append(
+                InlineKeyboardButton(
+                    text=f"💬 {name}",
+                    url=f"tg://user?id={u.telegram_id}"
+                )
+            )
+        msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
+    else:
+        msg += "🆕 <b>NEW MEMBERS</b>\nNone\n━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    # ── Expiring Today ───────────────────────────────────────────
+    if expiring:
+        msg += "⚠️ <b>EXPIRING TODAY</b>\n\n"
+        for idx, (m, u, ch) in enumerate(expiring, 1):
+            name = u.full_name or "No Name"
+            username = f"@{u.username}" if u.username else "No username"
+            expiry_time = m.expiry_date.astimezone(IST).strftime("%I:%M %p")
+            msg += (
+                f"{idx}. <b>{name}</b> ({username})\n"
+                f"   📺 {ch.name} | Expires at {expiry_time} IST\n\n"
+            )
+            keyboards.append(
+                InlineKeyboardButton(
+                    text=f"💬 {name}",
+                    url=f"tg://user?id={u.telegram_id}"
+                )
+            )
+        msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
+    else:
+        msg += "⚠️ <b>EXPIRING TODAY</b>\nNone\n━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    # ── Expired Yesterday ────────────────────────────────────────
+    if expired:
+        msg += "❌ <b>EXPIRED</b>\n\n"
+        for idx, (m, u, ch) in enumerate(expired, 1):
+            name = u.full_name or "No Name"
+            username = f"@{u.username}" if u.username else "No username"
+            expired_time = m.expiry_date.astimezone(IST).strftime("%I:%M %p")
+            msg += (
+                f"{idx}. <b>{name}</b> ({username})\n"
+                f"   📺 {ch.name} | Expired at {expired_time} IST\n\n"
+            )
+            keyboards.append(
+                InlineKeyboardButton(
+                    text=f"💬 {name}",
+                    url=f"tg://user?id={u.telegram_id}"
+                )
+            )
+    else:
+        msg += "❌ <b>EXPIRED</b>\nNone\n"
+
+    # ── Build keyboard — 2 buttons per row ──────────────────────
+    keyboard_rows = [
+        keyboards[i:i+2] for i in range(0, len(keyboards), 2)
+    ]
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard_rows) if keyboard_rows else None
+
+    # ── Send to all admins ───────────────────────────────────────
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                msg,
+                parse_mode="HTML",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            print(f"❌ Failed to send member report to {admin_id}: {e}")
