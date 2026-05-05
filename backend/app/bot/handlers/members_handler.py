@@ -170,10 +170,11 @@ async def _show_members(message, sort: str, ch_id: int, page: int, edit: bool = 
                 f"   📅 {date_str}\n\n"
             )
 
-            message_buttons.append(InlineKeyboardButton(
-                text=f"💬 {name[:15]}",
-                url=f"tg://user?id={u.telegram_id}"
-            ))
+            if u.username:
+                message_buttons.append(InlineKeyboardButton(
+                    text=f"💬 {name[:15]}",
+                    url=f"https://t.me/{u.username}"
+                ))
             message_buttons.append(InlineKeyboardButton(
                 text="👤 Info",
                 callback_data=f"mb_info_{u.telegram_id}"
