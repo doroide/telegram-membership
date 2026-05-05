@@ -1,4 +1,4 @@
-import os
+	import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, BotCommandScopeChat
 from aiogram.filters import Command
@@ -40,6 +40,7 @@ ADMIN_COMMANDS = [
     BotCommand(command="broadcast",  description="📢 Broadcast Message"),
     BotCommand(command="kick",       description="🦵 Kick User"),
     BotCommand(command="dailyreport", description="👥 Daily Member Report"),
+    BotCommand(command="members", description="👥 Members Panel"),
 ]
 
 

@@ -8,6 +8,7 @@ from backend.app.tasks.reports import (
     send_monthly_report,
     send_yearly_report,
     send_member_daily_report,
+    send_excel_report,
 )
 
 scheduler = AsyncIOScheduler()
@@ -41,6 +42,13 @@ def start_scheduler():
         id="member_daily_report",
         replace_existing=True
     )
+    # Daily Excel report – 9 AM IST (3:30 UTC)
+    scheduler.add_job(
+        send_excel_report,
+        CronTrigger(hour=3, minute=30),
+        id="excel_report",
+        replace_existing=True
+    )
     # Weekly report – Monday 9 AM IST
     scheduler.add_job(
         send_weekly_report,
@@ -63,7 +71,7 @@ def start_scheduler():
         replace_existing=True
     )
     scheduler.start()
-    print("✅ Scheduler started (daily / weekly / monthly / yearly reports enabled)")
+    print("✅ Scheduler started (daily / weekly / monthly / yearly / excel reports enabled)")
 
 def stop_scheduler():
     scheduler.shutdown()
