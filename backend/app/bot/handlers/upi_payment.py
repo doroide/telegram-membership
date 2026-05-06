@@ -44,6 +44,8 @@ async def show_upi_payment(
     channel_name: str,
     state: FSMContext
 ):
+    global _upi_qr_file_id
+
     await state.update_data(
         upi_channel_id=channel_id,
         upi_days=days,
@@ -51,40 +53,21 @@ async def show_upi_payment(
         upi_channel_name=channel_name
     )
 
-    text = (
+    caption = (
         f"💳 *Complete Your Payment*\n\n"
         f"📦 *Plan:* {validity_label(days)} Access\n"
-        f"💰 *Amount:* ₹{price}\n"
+        f"💰 *Amount:* \u20b9{price}\n"
         f"━━━━━━━━━━━━━━━\n"
         f"🏦 *UPI ID:* `{UPI_ID}`\n"
         f"☝️ _Tap & hold UPI ID to copy_\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"👇 *Tap your payment app to pay instantly:*"
+        f"📌 *How to Pay:*\n"
+        f"• Scan the QR code above\n"
+        f"• OR pay using the UPI ID\n\n"
+        f"🚀 After payment, click below 👇"
     )
 
-    base_url = os.getenv("TELEGRAM_WEBHOOK_URL", "").replace("/telegram/webhook", "")
-
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="💚 GPay",
-                url=f"{base_url}/pay/gpay?am={price}"
-            ),
-            InlineKeyboardButton(
-                text="💙 PhonePe",
-                url=f"{base_url}/pay/phonepe?am={price}"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text="🔵 Paytm",
-                url=f"{base_url}/pay/paytm?am={price}"
-            ),
-            InlineKeyboardButton(
-                text="📷 Show QR",
-                callback_data=f"upi_qr:{channel_id}:{days}:{price}"
-            ),
-        ],
         [InlineKeyboardButton(
             text="✅ I Have Paid",
             callback_data=f"upi_paid:{channel_id}:{days}:{price}"
@@ -92,61 +75,35 @@ async def show_upi_payment(
         [InlineKeyboardButton(text="🏠 Back to Home", callback_data="cancel_to_home")]
     ])
 
-    await callback.message.answer(
-        text,
-        parse_mode="Markdown",
-        reply_markup=keyboard
-    )
-
-    try:
-        await callback.answer()
-    except Exception:
-        pass
-
-
-# ── User: tapped Show QR ─────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith("upi_qr:"))
-async def show_qr_code(callback: CallbackQuery):
-    global _upi_qr_file_id
-
-    parts = callback.data.split(":")
-    channel_id = parts[1]
-    days = parts[2]
-    price = parts[3]
-
-    try:
-        await callback.answer()
-    except Exception:
-        pass
-
-    caption = (
-        f"📷 *Scan to Pay ₹{price}*\n\n"
-        f"🏦 UPI ID: `{UPI_ID}`\n\n"
-        f"_After payment tap ✅ I Have Paid in the previous message._"
-    )
-
     try:
         if _upi_qr_file_id:
-            await callback.message.answer_photo(
+            msg = await callback.message.answer_photo(
                 photo=_upi_qr_file_id,
                 caption=caption,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=keyboard
             )
         else:
             qr_file = FSInputFile(UPI_QR_PATH)
             msg = await callback.message.answer_photo(
                 photo=qr_file,
                 caption=caption,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=keyboard
             )
             _upi_qr_file_id = msg.photo[-1].file_id
     except Exception as e:
         print(f"[UPI] QR send failed: {e}")
         await callback.message.answer(
-            f"❌ QR unavailable. Please use UPI ID: `{UPI_ID}`",
-            parse_mode="Markdown"
+            caption + "\n\n_(QR unavailable — copy UPI ID above)_",
+            parse_mode="Markdown",
+            reply_markup=keyboard
         )
+
+    try:
+        await callback.answer()
+    except Exception:
+        pass
 
 
 # ── User: clicked "I Have Paid" ───────────────────────────────────────
@@ -192,6 +149,7 @@ async def receive_proof(message: Message, state: FSMContext):
         await state.clear()
         return
 
+    # Determine proof type
     if message.photo:
         proof_type = "screenshot"
         screenshot_file_id = message.photo[-1].file_id
@@ -405,7 +363,7 @@ async def approve_payment(callback: CallbackQuery):
             f"Amount: *\u20b9{upi_payment.amount}*\n\n"
         )
         if invite_link:
-            user_msg += f"\U0001f517 *Your Invite Link:*\n{invite_link}\n\n_Link expires in 24 hours. After joining, find the channel in your Telegram chat list._"
+            user_msg += f"\U0001f517 *Your Invite Link:*\n{invite_link}\n\n_Link expires in 24 hours._"
         else:
             user_msg += "_Your membership is active! Join the channel if you haven't already._"
 
