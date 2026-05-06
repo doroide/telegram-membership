@@ -72,24 +72,31 @@ app.include_router(razorpay_router, prefix="/api")
 # ======================================================
 from backend.app.services.payment_service import UPI_ID
 
+from urllib.parse import quote
+
 @app.get("/pay/gpay")
 async def pay_gpay(am: int):
+    upi_id = quote(UPI_ID, safe='@')
     return RedirectResponse(
-        url=f"gpay://upi/pay?pa={UPI_ID}&pn=Doroide&am={am}&cu=INR"
+        url=f"gpay://upi/pay?pa={upi_id}&pn=Doroide&am={am}&cu=INR",
+        status_code=302
     )
 
 @app.get("/pay/phonepe")
 async def pay_phonepe(am: int):
+    upi_id = quote(UPI_ID, safe='@')
     return RedirectResponse(
-        url=f"phonepe://pay?pa={UPI_ID}&pn=Doroide&am={am}&cu=INR"
+        url=f"phonepe://pay?pa={upi_id}&pn=Doroide&am={am}&cu=INR",
+        status_code=302
     )
 
 @app.get("/pay/paytm")
 async def pay_paytm(am: int):
+    upi_id = quote(UPI_ID, safe='@')
     return RedirectResponse(
-        url=f"paytmmp://pay?pa={UPI_ID}&pn=Doroide&am={am}&cu=INR"
+        url=f"paytmmp://pay?pa={upi_id}&pn=Doroide&am={am}&cu=INR",
+        status_code=302
     )
-
 # ======================================================
 # TELEGRAM WEBHOOK
 # ======================================================
