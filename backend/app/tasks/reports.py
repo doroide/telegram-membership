@@ -51,7 +51,7 @@ async def _all_channels_revenue(session, start, end):
 def _tg_link(user: User) -> str:
     if user.username:
         return f"https://t.me/{user.username}"
-    return f"tg://user?id={user.telegram_id}"
+    return ""
 
 
 def _style_header(ws, headers: list):
@@ -455,10 +455,11 @@ async def send_member_daily_report(date=None):
                 f"{idx}. <b>{name}</b> ({username})\n"
                 f"   📺 {ch.name} | ₹{int(float(m.amount_paid))} | {m.validity_days}d\n\n"
             )
-            keyboards.append(InlineKeyboardButton(
-                text=f"💬 {name[:15]}",
-                url=f"tg://user?id={u.telegram_id}"
-            ))
+            if u.username:
+                keyboards.append(InlineKeyboardButton(
+                    text=f"💬 {name[:15]}",
+                    url=f"https://t.me/{u.username}"
+                ))
         msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
     else:
         msg += "🆕 <b>NEW MEMBERS</b>\nNone\n━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -473,10 +474,11 @@ async def send_member_daily_report(date=None):
                 f"{idx}. <b>{name}</b> ({username})\n"
                 f"   📺 {ch.name} | Expires at {expiry_time} IST\n\n"
             )
-            keyboards.append(InlineKeyboardButton(
-                text=f"💬 {name[:15]}",
-                url=f"tg://user?id={u.telegram_id}"
-            ))
+            if u.username:
+                keyboards.append(InlineKeyboardButton(
+                    text=f"💬 {name[:15]}",
+                    url=f"https://t.me/{u.username}"
+                ))
         msg += "━━━━━━━━━━━━━━━━━━━━\n\n"
     else:
         msg += "⚠️ <b>EXPIRING TODAY</b>\nNone\n━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -491,10 +493,11 @@ async def send_member_daily_report(date=None):
                 f"{idx}. <b>{name}</b> ({username})\n"
                 f"   📺 {ch.name} | Expired at {expiry_time} IST\n\n"
             )
-            keyboards.append(InlineKeyboardButton(
-                text=f"💬 {name[:15]}",
-                url=f"tg://user?id={u.telegram_id}"
-            ))
+            if u.username:
+                keyboards.append(InlineKeyboardButton(
+                    text=f"💬 {name[:15]}",
+                    url=f"https://t.me/{u.username}"
+                ))
     else:
         msg += "❌ <b>EXPIRED</b>\nNone\n"
 
