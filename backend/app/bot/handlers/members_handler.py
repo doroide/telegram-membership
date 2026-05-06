@@ -5,7 +5,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
 from sqlalchemy import select, func
-
+#d
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Membership, Channel
 
