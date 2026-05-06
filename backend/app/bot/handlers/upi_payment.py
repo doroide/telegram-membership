@@ -62,21 +62,23 @@ async def show_upi_payment(
         f"👇 *Tap your payment app to pay instantly:*"
     )
 
+    base_url = os.getenv("TELEGRAM_WEBHOOK_URL", "").replace("/telegram/webhook", "")
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
                 text="💚 GPay",
-                url=f"gpay://upi/pay?pa={UPI_ID}&pn=Doroide&am={price}&cu=INR"
+                url=f"{base_url}/pay/gpay?am={price}"
             ),
             InlineKeyboardButton(
                 text="💙 PhonePe",
-                url=f"phonepe://pay?pa={UPI_ID}&pn=Doroide&am={price}&cu=INR"
+                url=f"{base_url}/pay/phonepe?am={price}"
             ),
         ],
         [
             InlineKeyboardButton(
                 text="🔵 Paytm",
-                url=f"paytmmp://pay?pa={UPI_ID}&pn=Doroide&am={price}&cu=INR"
+                url=f"{base_url}/pay/paytm?am={price}"
             ),
             InlineKeyboardButton(
                 text="📷 Show QR",

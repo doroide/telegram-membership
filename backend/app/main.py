@@ -1,5 +1,6 @@
 import os
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from aiogram.types import Update
 import asyncio
 
@@ -37,12 +38,6 @@ from backend.app.bot.handlers.members_handler import router as members_router
 from backend.app.db.base import Base
 from backend.app.db.session import engine
 
-# ADD with other handler imports:
-
-
-# ADD with other dp.include_router() calls:
-
-
 # ======================================================
 # REGISTER ROUTERS
 # ======================================================
@@ -71,6 +66,29 @@ print("✅ Aiogram routers registered")
 # ======================================================
 from backend.app.api.webhook import router as razorpay_router
 app.include_router(razorpay_router, prefix="/api")
+
+# ======================================================
+# UPI PAYMENT APP REDIRECTS
+# ======================================================
+from backend.app.services.payment_service import UPI_ID
+
+@app.get("/pay/gpay")
+async def pay_gpay(am: int):
+    return RedirectResponse(
+        url=f"gpay://upi/pay?pa={UPI_ID}&pn=Doroide&am={am}&cu=INR"
+    )
+
+@app.get("/pay/phonepe")
+async def pay_phonepe(am: int):
+    return RedirectResponse(
+        url=f"phonepe://pay?pa={UPI_ID}&pn=Doroide&am={am}&cu=INR"
+    )
+
+@app.get("/pay/paytm")
+async def pay_paytm(am: int):
+    return RedirectResponse(
+        url=f"paytmmp://pay?pa={UPI_ID}&pn=Doroide&am={am}&cu=INR"
+    )
 
 # ======================================================
 # TELEGRAM WEBHOOK
@@ -114,8 +132,6 @@ async def on_startup():
     # ✅ START UPSELL SENDER
     asyncio.create_task(scheduled_upsell_task())
     print("✅ Upsell sender task started")
-    
-    
 
 # ======================================================
 # SHUTDOWN
