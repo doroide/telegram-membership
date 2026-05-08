@@ -1,6 +1,7 @@
 import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, and_
@@ -19,7 +20,26 @@ class KickUserStates(StatesGroup):
 
 
 # =====================================================
-# STEP 1: Admin clicks Kick User
+# /KICK COMMAND — from menu button
+# =====================================================
+
+@router.message(Command("kick"))
+async def kick_command(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    await state.set_state(KickUserStates.waiting_for_user_id)
+    await message.answer(
+        "🦵 <b>Kick User</b>\n\n"
+        "Enter the Telegram ID of the user you want to kick:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+# =====================================================
+# STEP 1: Admin clicks Kick User from admin panel
 # =====================================================
 
 @router.callback_query(F.data == "admin_kick_user")
@@ -71,7 +91,6 @@ async def kick_user_show_channels(message: Message, state: FSMContext):
             await state.clear()
             return
 
-        # Get active memberships
         result = await session.execute(
             select(Membership, Channel)
             .join(Channel, Membership.channel_id == Channel.id)
@@ -95,7 +114,6 @@ async def kick_user_show_channels(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    # Show channels as buttons
     buttons = [
         [InlineKeyboardButton(
             text=f"📺 {channel.name}",
@@ -126,7 +144,6 @@ async def kick_user_execute(callback: CallbackQuery):
         return
 
     parts = callback.data.split("_")
-    # kick_confirm_{user_id}_{telegram_id}_{membership_id}_{channel_id}
     user_id = int(parts[2])
     telegram_id = int(parts[3])
     membership_id = int(parts[4])
@@ -140,11 +157,9 @@ async def kick_user_execute(callback: CallbackQuery):
             await callback.answer("❌ Data not found", show_alert=True)
             return
 
-        # Deactivate membership
         membership.is_active = False
         await session.commit()
 
-    # Kick from Telegram channel
     try:
         await bot.ban_chat_member(
             chat_id=int(channel.telegram_chat_id),
@@ -162,7 +177,6 @@ async def kick_user_execute(callback: CallbackQuery):
         await callback.answer()
         return
 
-    # Notify user
     try:
         await bot.send_message(
             chat_id=telegram_id,
@@ -174,7 +188,7 @@ async def kick_user_execute(callback: CallbackQuery):
             parse_mode="HTML"
         )
     except Exception:
-        pass  # User may have blocked the bot
+        pass
 
     await callback.message.edit_text(
         f"✅ <b>User Kicked Successfully</b>\n\n"
