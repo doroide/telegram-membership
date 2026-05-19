@@ -151,3 +151,12 @@ class UpiPayment(Base):
 
     user = relationship("User", backref="upi_payments")
     channel = relationship("Channel", backref="upi_payments")
+
+class PaymentHistory(Base):
+    __tablename__ = "payment_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)  # B-Tree index for search optimization
+    amount = Column(Numeric(10, 2), nullable=False)         # Decimal/Numeric storage
+    date = Column(DateTime(timezone=True), nullable=False)
+    group_name = Column(String(255), nullable=False)

@@ -47,7 +47,8 @@ async def admin_panel(message: Message):
         [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="🔗 Send Access Links", callback_data="admin_send_links")],
         [InlineKeyboardButton(text="👤 User Info", callback_data="admin_user_info")],
-        [InlineKeyboardButton(text="📥 Import Users CSV", callback_data="admin_import_csv")]
+        [InlineKeyboardButton(text="📥 Import Users CSV", callback_data="admin_import_csv")],
+        [InlineKeyboardButton(text="📜 Search Legacy History", callback_data="admin_history_search")]
     ])
 
     await message.answer(
@@ -74,7 +75,8 @@ def _main_keyboard():
         [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")],
         [InlineKeyboardButton(text="🔗 Send Access Links", callback_data="admin_send_links")],
         [InlineKeyboardButton(text="👤 User Info", callback_data="admin_user_info")],
-        [InlineKeyboardButton(text="📥 Import Users CSV", callback_data="admin_import_csv")]
+        [InlineKeyboardButton(text="📥 Import Users CSV", callback_data="admin_import_csv")],
+        [InlineKeyboardButton(text="📜 Search Legacy History", callback_data="admin_history_search")]
     ])
 
 
