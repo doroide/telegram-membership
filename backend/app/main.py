@@ -38,10 +38,12 @@ from backend.app.bot.handlers.members_handler import router as members_router
 from backend.app.db.base import Base
 from backend.app.db.session import engine
 from backend.app.bot.handlers.history_handler import router as history_router
+from backend.app.bot.handlers.export_missing import router as export_missing_router
 
 # ======================================================
 # REGISTER ROUTERS
 # ======================================================
+dp.include_router(export_missing_router)
 dp.include_router(history_router)
 dp.include_router(autorenew_router)
 dp.include_router(upsell_router)
