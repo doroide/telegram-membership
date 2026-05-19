@@ -1,6 +1,6 @@
 import os
 import collections
-from datetime import datetime
+from datetime import datetime, timezone
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -9,11 +9,11 @@ from aiogram.filters import Command
 from sqlalchemy import select
 
 from backend.app.db.session import async_session
-from backend.app.db.models import PaymentHistory
+from backend.app.db.models import PaymentHistory, User, Membership, Channel
 
 router = Router()
 
-# Pull Admin IDs safely matching your admin_panel configuration pattern
+# Pull Admin IDs securely matching your core configuration pattern
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x]
 
 class HistoryStates(StatesGroup):
@@ -21,12 +21,12 @@ class HistoryStates(StatesGroup):
 
 def _back_to_history_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📜 Search Again", callback_data="admin_history_search")],
+        [InlineKeyboardButton(text="📜 Search Another Name", callback_data="admin_history_search")],
         [InlineKeyboardButton(text="🔙 Back to Admin Menu", callback_data="admin_back_main")]
     ])
 
 # =====================================================
-# TRIGGER: Entry point via /history command
+# ENTRY PATHWAY: Command Trigger
 # =====================================================
 @router.message(Command("history"))
 async def history_command_handler(message: Message, state: FSMContext):
@@ -35,54 +35,48 @@ async def history_command_handler(message: Message, state: FSMContext):
     
     await state.set_state(HistoryStates.waiting_for_search_name)
     await message.answer(
-        "📜 <b>Legacy Payment History Search</b>\n\n"
-        "Please type the <b>Name</b> (or part of the name) of the user you want to look up:",
+        "📜 <b>User Profile & History Center</b>\n\n"
+        "Send me the <b>Name</b> of the member you want to look up. "
+        "The bot will match both live bot subscriptions and old Excel records:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_cancel_state")]
+            [InlineKeyboardButton(text="❌ Cancel Search", callback_data="admin_cancel_state")]
         ])
     )
 
 # =====================================================
-# TRIGGER: Entry point via Inline Callback Button
+# ENTRY PATHWAY: Callback Menu Button Trigger
 # =====================================================
 @router.callback_query(F.data == "admin_history_search")
 async def history_callback_handler(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.answer()
-    except Exception as e:
-        print(f"[History Logs] Failed to answer callback query: {e}")
+    except Exception:
+        pass
 
     if callback.from_user.id not in ADMIN_IDS:
         try:
-            await callback.message.answer("⛔ Access Denied: Admin Authorization Required.")
+            await callback.message.answer("⛔ Access Denied: Admin Privileges Required.")
         except Exception:
             pass
         return
 
-    try:
-        await state.set_state(HistoryStates.waiting_for_search_name)
-        await callback.message.edit_text(
-            "📜 <b>Legacy Payment History Search</b>\n\n"
-            "Please type the <b>Name</b> (or part of the name) of the user you want to look up:",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_cancel_state")]
-            ])
-        )
-    except Exception as e:
-        print(f"[History Logs] Failure rendering text view: {e}")
-        await callback.message.answer(
-            "📜 <b>Legacy Payment History Search</b>\n\n"
-            "Please type the <b>Name</b> of the user you want to look up:",
-            parse_mode="HTML"
-        )
+    await state.set_state(HistoryStates.waiting_for_search_name)
+    await callback.message.edit_text(
+        "📜 <b>User Profile & History Center</b>\n\n"
+        "Send me the <b>Name</b> of the member you want to look up. "
+        "The bot will match both live bot subscriptions and old Excel records:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Cancel Search", callback_data="admin_cancel_state")]
+        ])
+    )
 
 # =====================================================
-# STATE PROCESSING: Handle Text Search Input
+# PROCESSING PIPELINE: Dual-Engine Merge Query
 # =====================================================
 @router.message(HistoryStates.waiting_for_search_name)
-async def process_history_search(message: Message, state: FSMContext):
+async def process_combined_search(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
 
@@ -90,81 +84,145 @@ async def process_history_search(message: Message, state: FSMContext):
     
     if len(search_query) < 2:
         await message.answer(
-            "⚠️ Search query too short! Please type at least <b>2 characters</b>.",
+            "⚠️ Search name too short! Please type at least <b>2 characters</b> to search.",
             parse_mode="HTML"
         )
         return
 
-    # Keep FSM state alive during query execution to prevent route hijacking
-    processing_msg = await message.answer("🔍 Searching legacy transaction records...")
+    processing_msg = await message.answer("🔍 Querying databases and compiling user profiles...")
 
     try:
         async with async_session() as session:
-            stmt = (
+            # 1. FETCH LEGACY EXCEL ENTRIES
+            legacy_stmt = (
                 select(PaymentHistory)
                 .where(PaymentHistory.name.ilike(f"%{search_query}%"))
                 .order_by(PaymentHistory.date.desc())
             )
-            result = await session.execute(stmt)
-            records = result.scalars().all()
+            legacy_res = await session.execute(legacy_stmt)
+            legacy_records = legacy_res.scalars().all()
+
+            # 2. FETCH LIVE BOT ACCOUNTS WITH ACTIVE MEMBERSHIPS
+            live_stmt = (
+                select(User)
+                .where(User.full_name.ilike(f"%{search_query}%"))
+            )
+            live_res = await session.execute(live_stmt)
+            live_users = live_res.scalars().all()
+
+            # We pre-fetch memberships for matching users to dodge circular lazy-loading locks
+            user_profiles = {}
+            for l_user in live_users:
+                memb_stmt = (
+                    select(Membership, Channel)
+                    .join(Channel, Membership.channel_id == Channel.id)
+                    .where(Membership.user_id == l_user.id)
+                    .order_by(Membership.is_active.desc(), Membership.expiry_date.desc())
+                )
+                memb_res = await session.execute(memb_stmt)
+                user_profiles[l_user.full_name.strip()] = {
+                    "user_obj": l_user,
+                    "memberships": memb_res.all()
+                }
 
     except Exception as db_err:
-        print(f"[CRITICAL DATABASE ERROR]: {db_err}")
+        print(f"[CRITICAL COMBINED SEARCH DB ERROR]: {db_err}")
         await state.clear()
         await processing_msg.edit_text(
-            f"🚨 <b>Database Error:</b>\n<code>{str(db_err)}</code>",
+            f"🚨 <b>Database Lookup Error:</b>\n<code>{str(db_err)}</code>",
             parse_mode="HTML",
             reply_markup=_back_to_history_menu()
         )
         return
 
-    if not records:
+    # Extract all distinct unique names found across BOTH databases
+    all_names = set()
+    
+    legacy_grouped = collections.defaultdict(list)
+    for rec in legacy_records:
+        c_name = rec.name.strip()
+        legacy_grouped[c_name].append(rec)
+        all_names.add(c_name)
+        
+    for l_name in user_profiles.keys():
+        all_names.add(l_name)
+
+    if not all_names:
         await state.clear()
         await processing_msg.edit_text(
-            f"❌ No legacy records found matching: <b>{search_query}</b>",
+            f"❌ No records found matching <b>'{search_query}'</b> in legacy or live data.",
             parse_mode="HTML",
             reply_markup=_back_to_history_menu()
         )
         return
 
-    # Group flat rows into clean dictionary collections
-    grouped_data = collections.defaultdict(list)
-    for record in records:
-        cleaned_name = record.name.strip() if record.name else "Unknown"
-        grouped_data[cleaned_name].append(record)
-
-    response_text = f"📊 <b>Found {len(records)} transactions across {len(grouped_data)} matches:</b>\n\n"
-    display_limit = 5
+    # Build response payload
+    response_text = f"📊 <b>Found {len(all_names)} unique matching profiles:</b>\n\n"
+    
+    # Strict display limit to protect against Telegram's 4096 character limit
+    display_limit = 4
     current_count = 0
 
-    for individual_name, tx_list in grouped_data.items():
+    for profile_name in sorted(all_names):
         if current_count >= display_limit:
-            response_text += "⚠️ <i>Too many individual matches. Please refine your search query.</i>\n"
+            response_text += "⚠️ <i>Too many matches found. Please type a more specific name to narrow results.</i>\n"
             break
             
         current_count += 1
+        response_text += f"👤 <b>PROFILE: {profile_name}</b>\n"
         
-        # Safe mathematical evaluations casting decimal objects to float values
-        total_spent = sum(float(tx.amount) for tx in tx_list)
-        highest_payment = max(float(tx.amount) for tx in tx_list)
-
-        # Build escaping layout metrics using HTML parse modes
-        response_text += f"👤 <b>Name: {individual_name}</b>\n"
-        response_text += f"💰 <b>Total Invested:</b> ₹{total_spent:,.2f}\n"
-        response_text += f"💎 <b>Highest Single Tx:</b> ₹{highest_payment:,.2f}\n"
-        response_text += "📋 <b>Transactions:</b>\n"
-
-        for tx in tx_list:
-            if isinstance(tx.date, datetime):
-                formatted_date = tx.date.strftime("%Y-%m-%d")
-            else:
-                formatted_date = str(tx.date)[:10]
+        # PART A: DISPLAY LIVE BOT SUBSCRIPTIONS FIRST (IF ANY EXIST)
+        if profile_name in user_profiles:
+            profile_data = user_profiles[profile_name]
+            u_obj = profile_data["user_obj"]
+            membs = profile_data["memberships"]
             
-            response_text += f"   📅 <code>{formatted_date}</code> | ₹{float(tx.amount):.0f} | <i>{tx.group_name or 'N/A'}</i>\n"
-        
+            username_display = f"@{u_obj.username}" if u_obj.username else "N/A"
+            response_text += (
+                f"├─ 🌐 <b>Live Bot Account</b>\n"
+                f"│  🆔 ID: <code>{u_obj.telegram_id}</code> | {username_display}\n"
+                f"│  🎯 Current Tier: {u_obj.current_tier}\n"
+            )
+            
+            if membs:
+                response_text += "│  📥 <b>Current Memberships:</b>\n"
+                for membership, channel in membs:
+                    status_icon = "✅" if membership.is_active else "❌"
+                    exp_date = membership.expiry_date.strftime("%d %b %Y") if membership.expiry_date else "N/A"
+                    response_text += f"│  {status_icon} <i>{channel.name}</i> (Expires: {exp_date})\n"
+            else:
+                response_text += "│  📭 <i>No active or expired bot memberships.</i>\n"
+        else:
+            response_text += "├─ 🌐 <b>Live Bot Account:</b> ❌ No account found inside bot database.\n"
+
+        # PART B: DISPLAY LEGACY TRANSACTION DATA DIRECTLY BELOW IT
+        if profile_name in legacy_grouped:
+            tx_list = legacy_grouped[profile_name]
+            
+            # Safe calculation casting to float explicitly
+            total_legacy = sum(float(tx.amount) for tx in tx_list)
+            highest_legacy = max(float(tx.amount) for tx in tx_list)
+            
+            response_text += (
+                f"└─ 📜 <b>Legacy Financial History</b>\n"
+                f"   💰 Total Spent: <b>₹{total_legacy:,.2f}</b>\n"
+                f"   💎 Highest Single Tx: ₹{highest_legacy:,.2f}\n"
+                f"   📋 <b>Old Records ({len(tx_list)} total):</b>\n"
+            )
+            
+            # Show only the last 5 transactions per person if they have huge history lines to prevent bloating
+            for tx in tx_list[:5]:
+                f_date = tx.date.strftime("%Y-%m-%d") if isinstance(tx.date, datetime) else str(tx.date)[:10]
+                response_text += f"   📅 <code>{f_date}</code> | ₹{float(tx.amount):.0f} | <i>{tx.group_name}</i>\n"
+                
+            if len(tx_list) > 5:
+                response_text += f"   ... and {len(tx_list) - 5} older rows.\n"
+        else:
+            response_text += "└─ 📜 <b>Legacy Financial History:</b> ❌ No old Excel data lines.\n"
+            
         response_text += "────────────────────\n"
 
-    # Safely discard FSM state right before transmission payload execution
+    # Safely clear active machine state right before pushing data to telegram
     await state.clear()
     
     try:
@@ -174,9 +232,11 @@ async def process_history_search(message: Message, state: FSMContext):
             reply_markup=_back_to_history_menu()
         )
     except Exception as telegram_err:
-        print(f"[TELEGRAM SEND ERROR]: {telegram_err}")
+        print(f"[TELEGRAM RESPONSE PACK PACKING FAIL]: {telegram_err}")
         await message.answer(
-            "⚠️ <b>Payload Delivery Error</b>\nResults found but the message structure is too large or contains unescaped markup characters. Try a more specific name lookup.",
+            "⚠️ <b>Character Limit Safety Warning</b>\n\n"
+            "Profiles compiled successfully, but the resulting layout text block is too massive to output. "
+            "Please try again using a more specific first name or last name.",
             parse_mode="HTML",
             reply_markup=_back_to_history_menu()
         )
