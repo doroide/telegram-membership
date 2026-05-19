@@ -37,6 +37,7 @@ from backend.app.bot.handlers.daily_report_handler import router as daily_report
 from backend.app.bot.handlers.members_handler import router as members_router
 from backend.app.db.base import Base
 from backend.app.db.session import engine
+from backend.app.bot.handlers.history_handler import router as history_router
 
 # ======================================================
 # REGISTER ROUTERS
@@ -59,6 +60,7 @@ dp.include_router(admin_offers_router)
 dp.include_router(admin_kick_router)
 dp.include_router(daily_report_router)
 dp.include_router(members_router)
+dp.include_router(history_router)
 print("✅ Aiogram routers registered")
 
 # ======================================================
