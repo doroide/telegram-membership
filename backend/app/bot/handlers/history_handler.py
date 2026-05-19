@@ -13,7 +13,7 @@ from backend.app.db.models import PaymentHistory
 
 router = Router()
 
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x] [cite: 14]
+ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x] 
 
 class HistoryStates(StatesGroup):
     waiting_for_search_name = State()
