@@ -1,10 +1,11 @@
 import os
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select, and_
+from sqlalchemy import select
 
 from backend.app.db.session import async_session
 from backend.app.db.models import User, Membership, Channel
@@ -15,44 +16,75 @@ router = Router()
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x]
 
 
-class KickUserStates(StatesGroup):
-    waiting_for_user_id = State()
+class BroadcastStates(StatesGroup):
+    selecting_audience = State()
+    waiting_user_ids = State()
+    selecting_channel = State()
+    waiting_message = State()
+    confirming = State()
+
+
+def _audience_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 All Users", callback_data="bc_audience_all")],
+        [InlineKeyboardButton(text="🎯 Specific Users", callback_data="bc_audience_specific")],
+        [InlineKeyboardButton(text="📺 By Channel", callback_data="bc_audience_channel")],
+        [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")]
+    ])
 
 
 # =====================================================
-# /KICK COMMAND — from menu button
+# /BROADCAST COMMAND — from menu button
 # =====================================================
 
-@router.message(Command("kick"))
-async def kick_command(message: Message, state: FSMContext):
+@router.message(Command("broadcast"))
+async def broadcast_command(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
-    await state.set_state(KickUserStates.waiting_for_user_id)
+    await state.set_state(BroadcastStates.selecting_audience)
     await message.answer(
-        "🦵 <b>Kick User</b>\n\n"
-        "Enter the Telegram ID of the user you want to kick:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")]
-        ]),
+        "📢 <b>Broadcast Message</b>\n\n"
+        "Who do you want to send to?",
+        reply_markup=_audience_keyboard(),
         parse_mode="HTML"
     )
 
 
 # =====================================================
-# STEP 1: Admin clicks Kick User from admin panel
+# STEP 1: Admin clicks Broadcast in admin panel
 # =====================================================
 
-@router.callback_query(F.data == "admin_kick_user")
-async def kick_user_start(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "admin_broadcast")
+async def broadcast_start(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id not in ADMIN_IDS:
         await callback.answer("⛔ Not authorized", show_alert=True)
         return
 
-    await state.set_state(KickUserStates.waiting_for_user_id)
+    await state.set_state(BroadcastStates.selecting_audience)
 
     await callback.message.edit_text(
-        "🦵 <b>Kick User</b>\n\n"
-        "Enter the Telegram ID of the user you want to kick:",
+        "📢 <b>Broadcast Message</b>\n\n"
+        "Who do you want to send to?",
+        reply_markup=_audience_keyboard(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# =====================================================
+# STEP 2A: All Users selected
+# =====================================================
+
+@router.callback_query(F.data == "bc_audience_all")
+async def bc_audience_all(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(audience="all", target_ids=None)
+    await state.set_state(BroadcastStates.waiting_message)
+
+    await callback.message.edit_text(
+        "📢 <b>Broadcast to All Users</b>\n\n"
+        "Send your message now.\n"
+        "Supports text, images, links, and emojis.\n\n"
+        "Just send it as a normal message 👇",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")]
         ]),
@@ -62,140 +94,221 @@ async def kick_user_start(callback: CallbackQuery, state: FSMContext):
 
 
 # =====================================================
-# STEP 2: Admin enters Telegram ID — show their channels
+# STEP 2B: Specific Users selected
 # =====================================================
 
-@router.message(KickUserStates.waiting_for_user_id)
-async def kick_user_show_channels(message: Message, state: FSMContext):
+@router.callback_query(F.data == "bc_audience_specific")
+async def bc_audience_specific(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(BroadcastStates.waiting_user_ids)
+
+    await callback.message.edit_text(
+        "📢 <b>Broadcast to Specific Users</b>\n\n"
+        "Enter Telegram IDs separated by commas:\n"
+        "<code>123456789, 987654321, 111222333</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.message(BroadcastStates.waiting_user_ids)
+async def bc_receive_user_ids(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
 
     try:
-        telegram_id = int(message.text.strip())
+        ids = [int(x.strip()) for x in message.text.split(",") if x.strip()]
+        if not ids:
+            raise ValueError
     except ValueError:
-        await message.answer("❌ Invalid ID. Please enter a valid numeric Telegram ID.")
+        await message.answer("❌ Invalid format. Enter comma-separated numeric IDs.")
         return
 
-    async with async_session() as session:
-        user = await session.scalar(
-            select(User).where(User.telegram_id == telegram_id)
-        )
-
-        if not user:
-            await message.answer(
-                "❌ User not found in database.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🔙 Back", callback_data="admin_back_main")]
-                ])
-            )
-            await state.clear()
-            return
-
-        result = await session.execute(
-            select(Membership, Channel)
-            .join(Channel, Membership.channel_id == Channel.id)
-            .where(
-                and_(
-                    Membership.user_id == user.id,
-                    Membership.is_active == True
-                )
-            )
-        )
-        active = result.all()
-
-    if not active:
-        await message.answer(
-            f"ℹ️ User <code>{telegram_id}</code> has no active memberships.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Back", callback_data="admin_back_main")]
-            ]),
-            parse_mode="HTML"
-        )
-        await state.clear()
-        return
-
-    buttons = [
-        [InlineKeyboardButton(
-            text=f"📺 {channel.name}",
-            callback_data=f"kick_confirm_{user.id}_{telegram_id}_{membership.id}_{channel.id}"
-        )]
-        for membership, channel in active
-    ]
-    buttons.append([InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")])
+    await state.update_data(audience="specific", target_ids=ids)
+    await state.set_state(BroadcastStates.waiting_message)
 
     await message.answer(
-        f"👤 User: <b>{user.full_name or user.username or telegram_id}</b>\n"
-        f"🆔 Telegram ID: <code>{telegram_id}</code>\n\n"
-        f"Select the channel to kick them from:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        f"✅ <b>{len(ids)} user(s) selected</b>\n\n"
+        "Now send your message.\n"
+        "Supports text, images, links, and emojis 👇",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")]
+        ]),
         parse_mode="HTML"
     )
-    await state.clear()
 
 
 # =====================================================
-# STEP 3: Admin clicks channel — kick the user
+# STEP 2C: By Channel selected — show channel list
 # =====================================================
 
-@router.callback_query(F.data.startswith("kick_confirm_"))
-async def kick_user_execute(callback: CallbackQuery):
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("⛔ Not authorized", show_alert=True)
-        return
-
-    parts = callback.data.split("_")
-    user_id = int(parts[2])
-    telegram_id = int(parts[3])
-    membership_id = int(parts[4])
-    channel_id = int(parts[5])
-
+@router.callback_query(F.data == "bc_audience_channel")
+async def bc_audience_channel(callback: CallbackQuery, state: FSMContext):
     async with async_session() as session:
-        membership = await session.get(Membership, membership_id)
-        channel = await session.get(Channel, channel_id)
+        result = await session.execute(select(Channel).where(Channel.is_active == True))
+        channels = result.scalars().all()
 
-        if not membership or not channel:
-            await callback.answer("❌ Data not found", show_alert=True)
-            return
-
-        membership.is_active = False
-        await session.commit()
-
-    try:
-        await bot.ban_chat_member(
-            chat_id=int(channel.telegram_chat_id),
-            user_id=telegram_id
-        )
-        await bot.unban_chat_member(
-            chat_id=int(channel.telegram_chat_id),
-            user_id=telegram_id
-        )
-    except Exception as e:
+    if not channels:
         await callback.message.edit_text(
-            f"⚠️ Membership deactivated but failed to kick from Telegram:\n<code>{e}</code>",
-            parse_mode="HTML"
+            "❌ No active channels found.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Back", callback_data="admin_back_main")]
+            ])
         )
         await callback.answer()
         return
 
-    try:
-        await bot.send_message(
-            chat_id=telegram_id,
-            text=(
-                f"⛔ <b>Access Removed</b>\n\n"
-                f"You have been removed from <b>{channel.name}</b> by an admin.\n\n"
-                f"If you think this is a mistake, please contact admin @Doroide47."
-            ),
-            parse_mode="HTML"
+    buttons = [
+        [InlineKeyboardButton(text=f"📺 {c.name}", callback_data=f"bc_channel_{c.id}")]
+        for c in channels
+    ]
+    buttons.append([InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")])
+
+    await state.set_state(BroadcastStates.selecting_channel)
+    await callback.message.edit_text(
+        "📺 <b>Select Channel</b>\n\nWhich channel's members to message?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("bc_channel_"))
+async def bc_channel_selected(callback: CallbackQuery, state: FSMContext):
+    channel_id = int(callback.data.split("_")[2])
+
+    async with async_session() as session:
+        channel = await session.get(Channel, channel_id)
+        result = await session.execute(
+            select(User.telegram_id)
+            .join(Membership, Membership.user_id == User.id)
+            .where(
+                Membership.channel_id == channel_id,
+                Membership.is_active == True
+            )
         )
-    except Exception:
-        pass
+        ids = [r[0] for r in result.fetchall()]
+
+    await state.update_data(audience="channel", target_ids=ids, channel_name=channel.name)
+    await state.set_state(BroadcastStates.waiting_message)
 
     await callback.message.edit_text(
-        f"✅ <b>User Kicked Successfully</b>\n\n"
-        f"👤 Telegram ID: <code>{telegram_id}</code>\n"
-        f"📺 Channel: <b>{channel.name}</b>\n"
-        f"🔴 Membership deactivated\n"
-        f"📩 User notified",
+        f"✅ <b>{len(ids)} active member(s)</b> in {channel.name}\n\n"
+        "Now send your message.\n"
+        "Supports text, images, links, and emojis 👇",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")]
+        ]),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# =====================================================
+# STEP 3: Receive message — show confirmation
+# =====================================================
+
+@router.message(BroadcastStates.waiting_message)
+async def bc_receive_message(message: Message, state: FSMContext):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    data = await state.get_data()
+    audience = data.get("audience")
+    target_ids = data.get("target_ids")
+
+    await state.update_data(
+        msg_id=message.message_id,
+        chat_id=message.chat.id,
+        has_photo=bool(message.photo),
+        caption=message.caption,
+        text=message.text,
+        photo_id=message.photo[-1].file_id if message.photo else None
+    )
+    await state.set_state(BroadcastStates.confirming)
+
+    if audience == "all":
+        async with async_session() as session:
+            result = await session.execute(select(User.telegram_id))
+            count = len(result.fetchall())
+        audience_label = f"👥 All Users ({count} total)"
+    elif audience == "specific":
+        audience_label = f"🎯 Specific Users ({len(target_ids)} selected)"
+    else:
+        channel_name = data.get("channel_name", "channel")
+        audience_label = f"📺 {channel_name} members ({len(target_ids)} active)"
+
+    await message.answer(
+        f"📋 <b>Confirm Broadcast</b>\n\n"
+        f"📤 Send to: {audience_label}\n\n"
+        f"Are you sure you want to send this message?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Yes, Send", callback_data="bc_confirm_send"),
+                InlineKeyboardButton(text="❌ Cancel", callback_data="admin_back_main")
+            ]
+        ]),
+        parse_mode="HTML"
+    )
+
+
+# =====================================================
+# STEP 4: Confirmed — send to all targets
+# =====================================================
+
+@router.callback_query(F.data == "bc_confirm_send")
+async def bc_confirm_send(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ Not authorized", show_alert=True)
+        return
+
+    data = await state.get_data()
+    audience = data.get("audience")
+    target_ids = data.get("target_ids")
+    has_photo = data.get("has_photo")
+    photo_id = data.get("photo_id")
+    caption = data.get("caption")
+    text = data.get("text")
+
+    await state.clear()
+
+    if audience == "all":
+        async with async_session() as session:
+            result = await session.execute(select(User.telegram_id))
+            target_ids = [r[0] for r in result.fetchall()]
+
+    await callback.message.edit_text("📤 Sending... please wait.")
+
+    sent = 0
+    failed = 0
+
+    for tg_id in target_ids:
+        try:
+            if has_photo and photo_id:
+                await bot.send_photo(
+                    chat_id=tg_id,
+                    photo=photo_id,
+                    caption=caption or "",
+                    parse_mode="HTML"
+                )
+            else:
+                await bot.send_message(
+                    chat_id=tg_id,
+                    text=text or "",
+                    parse_mode="HTML"
+                )
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            failed += 1
+
+    await callback.message.edit_text(
+        f"✅ <b>Broadcast Complete</b>\n\n"
+        f"📤 Sent: {sent}\n"
+        f"❌ Failed: {failed}\n"
+        f"📊 Total: {sent + failed}",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Back to Admin Panel", callback_data="admin_back_main")]
         ]),
