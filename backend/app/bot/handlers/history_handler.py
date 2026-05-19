@@ -6,10 +6,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from backend.app.db.session import async_session
-from backend.app.db.models import PaymentHistory, User, Membership, Channel
+from backend.app.db.models import PaymentHistory, User, Membership, Channel, Payment
 
 router = Router()
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x]
@@ -41,22 +41,32 @@ async def history_callback_handler(callback: CallbackQuery, state: FSMContext):
 async def process_combined_search(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS: return
     search_query = message.text.strip()
-    
     processing_msg = await message.answer("⏳ Searching...")
 
     async with async_session() as session:
-        # 1. Fetch Legacy
+        # 1. Fetch Legacy Data
         legacy_res = await session.execute(select(PaymentHistory).where(PaymentHistory.name.ilike(f"%{search_query}%")))
         legacy_records = legacy_res.scalars().all()
         
-        # 2. Fetch Live
+        # 2. Fetch Live Data
         live_res = await session.execute(select(User).where(User.full_name.ilike(f"%{search_query}%")))
         live_users = live_res.scalars().all()
 
         user_profiles = {}
         for l_user in live_users:
+            # Fetch memberships
             memb_res = await session.execute(select(Membership, Channel).join(Channel).where(Membership.user_id == l_user.id))
-            user_profiles[l_user.full_name.strip()] = {"user_obj": l_user, "memberships": memb_res.all()}
+            # Fetch Live Payments for metrics
+            pay_res = await session.execute(select(func.sum(Payment.amount), func.max(Payment.amount), func.count(Payment.id)).where(Payment.user_id == l_user.id, Payment.status == "captured"))
+            total_paid, highest_paid, count_paid = pay_res.one()
+            
+            user_profiles[l_user.full_name.strip()] = {
+                "user_obj": l_user, 
+                "memberships": memb_res.all(),
+                "total_paid": total_paid or 0,
+                "highest_paid": highest_paid or 0,
+                "count_paid": count_paid or 0
+            }
 
         legacy_grouped = collections.defaultdict(list)
         for rec in legacy_records:
@@ -71,32 +81,40 @@ async def process_combined_search(message: Message, state: FSMContext):
 
         await processing_msg.delete()
 
-        # Send individual messages per user
+        # Send individual messages
         for profile_name in sorted(all_names):
-            # A. Live Section
             text = f"👤 <b>PROFILE: {profile_name}</b>\n"
+            
+            # --- Live Section ---
             if profile_name in user_profiles:
                 p = user_profiles[profile_name]
-                text += f"🌐 <b>Live Bot Account:</b> Tier {p['user_obj'].current_tier}\n"
+                u = p['user_obj']
+                text += (f"🌐 <b>Live Bot Account:</b> Tier {u.current_tier}\n"
+                         f"🆔 <code>{u.telegram_id}</code> | @{u.username or 'N/A'}\n"
+                         f"💰 <b>Total Paid:</b> ₹{float(p['total_paid']):.0f} ({p['count_paid']} payments)\n"
+                         f"💎 <b>Highest Tx:</b> ₹{float(p['highest_paid']):.0f}\n"
+                         f"📥 <b>Current Memberships:</b>\n")
                 if p['memberships']:
                     for m, c in p['memberships']:
                         icon = "✅" if m.is_active else "❌"
                         exp = m.expiry_date.strftime("%d %b %Y") if m.expiry_date else "N/A"
-                        text += f"{icon} <i>{c.name}</i> (Exp: {exp})\n"
+                        text += f"{icon} <i>{c.name}</i> (Exp: {exp}) | ₹{float(m.amount_paid):.0f}\n"
                 else:
-                    text += "📭 <i>No active bot memberships.</i>\n"
+                    text += "📭 <i>No active memberships.</i>\n"
             else:
                 text += "🌐 <b>Live Bot Account:</b> ❌ No account found.\n"
 
-            # B. Separator
             text += "\n➖➖➖➖➖➖➖➖➖➖➖➖\n\n"
 
-            # C. Legacy Section
+            # --- Legacy Section ---
             if profile_name in legacy_grouped:
                 txs = legacy_grouped[profile_name]
                 total = sum(float(tx.amount) for tx in txs)
                 highest = max(float(tx.amount) for tx in txs)
-                text += f"📜 <b>Legacy Financial History</b>\n💰 <b>Total Spent:</b> ₹{total:,.2f}\n💎 <b>Highest Tx:</b> ₹{highest:,.2f}\n📋 <b>Records ({len(txs)} total):</b>\n"
+                text += (f"📜 <b>Legacy Financial History</b>\n"
+                         f"💰 <b>Total Spent:</b> ₹{total:,.2f}\n"
+                         f"💎 <b>Highest Tx:</b> ₹{highest:,.2f}\n"
+                         f"📋 <b>Old Records ({len(txs)} total):</b>\n")
                 for tx in txs[:5]:
                     text += f"📅 <code>{tx.date.strftime('%Y-%m-%d')}</code> | ₹{float(tx.amount):.0f} | <i>{tx.group_name}</i>\n"
             else:
