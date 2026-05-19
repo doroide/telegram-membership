@@ -42,6 +42,7 @@ from backend.app.bot.handlers.history_handler import router as history_router
 # ======================================================
 # REGISTER ROUTERS
 # ======================================================
+dp.include_router(history_router)
 dp.include_router(autorenew_router)
 dp.include_router(upsell_router)
 dp.include_router(upsell_stats_router)
@@ -60,7 +61,7 @@ dp.include_router(admin_offers_router)
 dp.include_router(admin_kick_router)
 dp.include_router(daily_report_router)
 dp.include_router(members_router)
-dp.include_router(history_router)
+
 print("✅ Aiogram routers registered")
 
 # ======================================================
