@@ -34,6 +34,7 @@ USER_COMMANDS = [
 ADMIN_COMMANDS = [
     BotCommand(command="admin",      description="🛠 Admin Panel"),
     BotCommand(command="adduser",    description="➕ Add User Manually"),
+    BotCommand(command="history",     description="📜 Search User History"),
     BotCommand(command="addchannel", description="📺 Add New Channel"),
     BotCommand(command="sendlinks",  description="🔗 Send Access Links"),
     BotCommand(command="userinfo",   description="👤 User Info"),
