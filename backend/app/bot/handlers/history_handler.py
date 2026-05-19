@@ -36,7 +36,7 @@ async def history_callback_handler(callback: CallbackQuery, state: FSMContext):
         print(f"[History Logs] Failed to answer callback query: {e}")
 
     # Guardrail 2: Security check authorization
-    if callback.from_user.id not in ADMIN_IDS: [cite: 14]
+    if callback.from_user.id not in ADMIN_IDS: 
         try:
             await callback.message.answer("⛔ Access Denied: Admin Authorization Required.")
         except Exception:
