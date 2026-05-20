@@ -2,7 +2,8 @@ import os
 from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
+from aiogram.fsm.state import default_state
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -50,6 +51,46 @@ class AdminAddUserStates(StatesGroup):
 
 
 # =========================================================
+# UNIVERSAL CANCEL — works from any state
+# =========================================================
+
+@router.message(
+    StateFilter(
+        AdminAddUserStates.enter_user_id,
+        AdminAddUserStates.select_channel,
+        AdminAddUserStates.select_validity,
+        AdminAddUserStates.select_tier,
+        AdminAddUserStates.enter_custom_amount,
+        AdminAddUserStates.confirm,
+    ),
+    F.text.startswith("/")  # any command typed mid-flow
+)
+async def cancel_on_any_command(message: Message, state: FSMContext):
+    """If admin sends any command while in add-user flow, cancel the flow first."""
+    await state.clear()
+    await message.answer(
+        "❌ Add-user flow cancelled.\n\n"
+        "Use /adduser to start again or /admin to open the panel."
+    )
+
+
+@router.message(
+    StateFilter(
+        AdminAddUserStates.enter_user_id,
+        AdminAddUserStates.enter_custom_amount,
+    ),
+    F.text == "/cancel"
+)
+async def cancel_command(message: Message, state: FSMContext):
+    """Explicit /cancel during text-input steps."""
+    await state.clear()
+    await message.answer(
+        "❌ Cancelled.\n\n"
+        "Use /adduser to start again or /admin to open the panel."
+    )
+
+
+# =========================================================
 # /ADDUSER COMMAND
 # =========================================================
 
@@ -62,7 +103,8 @@ async def adduser_command(message: Message, state: FSMContext):
     
     await message.answer(
         "👤 <b>Add User Manually</b>\n\n"
-        "Enter the user's Telegram ID:",
+        "Enter the user's Telegram ID:\n\n"
+        "<i>Send /cancel at any time to abort.</i>",
         parse_mode="HTML"
     )
     
@@ -311,7 +353,8 @@ async def custom_amount_prompt(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "💰 <b>Custom Amount</b>\n\n"
         "Enter the amount user paid (in rupees):\n\n"
-        "Example: <code>350</code>",
+        "Example: <code>350</code>\n\n"
+        "<i>Send /cancel at any time to abort.</i>",
         parse_mode="HTML"
     )
     
